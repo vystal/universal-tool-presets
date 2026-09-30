@@ -10,7 +10,17 @@ import json
 import os
 import traceback
 
-from . import config, marks
+from . import config, marks, version
+
+
+def _where():
+    """Where this copy of the code came from. Asked lazily: addin imports
+    this module, so importing it back at the top would be a cycle."""
+    try:
+        from . import addin
+        return addin.loaded_from() or "in place"
+    except Exception:
+        return "unknown"
 
 
 class Report:
@@ -95,6 +105,11 @@ class Report:
                "%s, %.1fs. %s"
                % (self.started.strftime("%Y-%m-%d %H:%M:%S"), seconds,
                   self._what_happened()),
+               "",
+               # A report sent in from another machine has to say what made
+               # it, or there is no telling which rules produced its verdicts.
+               "UTP %s, schema %d, running from %s"
+               % (version.VERSION, config.SCHEMA, _where()),
                ""]
         if self.counts:
             out += ["## Verdicts", ""]

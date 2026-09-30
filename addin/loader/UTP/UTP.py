@@ -30,7 +30,6 @@ import os
 import shutil
 import sys
 import tempfile
-import threading
 import traceback
 import urllib.error
 import urllib.request
@@ -49,7 +48,11 @@ _LOG = os.path.join(_CACHE, "loader.log")
 # like Fusion has hung.
 _TIMEOUT = 20
 
-_worker = [None]
+# The check for something newer is a one-line file, so it can be waited for
+# at startup: measured at about a third of a second. Only when it says there
+# is an update does anything larger get fetched. A machine with no connection
+# pays this once per Fusion start and carries on with its cache.
+_PROBE_TIMEOUT = 3
 
 
 # ---------------------------------------------------------------------------
@@ -130,10 +133,11 @@ def _usable(folder):
             and os.path.isfile(os.path.join(folder, "utp", "addin.py")))
 
 
-def _sync(source):
+def _sync(source, probe_timeout=_TIMEOUT):
     """Fetch and install if there is something newer. Returns the version."""
     try:
-        available = _fetch(_url(source, "VERSION"), _TIMEOUT).decode().strip()
+        available = _fetch(_url(source, "VERSION"),
+                           probe_timeout).decode().strip()
     except urllib.error.URLError as exc:
         _note("could not check for updates: %s" % exc.reason)
         return None
@@ -190,22 +194,6 @@ def _sync(source):
         shutil.rmtree(staging, ignore_errors=True)
 
 
-def _sync_later(source):
-    """Fetch for next time, off the main thread.
-
-    Touches no Fusion API: the Fusion API is not safe off the main thread,
-    and this only moves files about.
-    """
-    def work():
-        try:
-            _sync(source)
-        except Exception:
-            _note("background update failed:\n%s" % traceback.format_exc())
-
-    _worker[0] = threading.Thread(target=work, daemon=True)
-    _worker[0].start()
-
-
 # ---------------------------------------------------------------------------
 # Fusion's entry points
 # ---------------------------------------------------------------------------
@@ -215,6 +203,13 @@ def run(context):
     try:
         source = _source()
         have = _usable(_CODE)
+
+        if have and source is not None:
+            # Before anything is imported, so a release published today is
+            # running after one restart rather than two. Fetching afterwards
+            # instead cost nothing at startup, but the copy it collected then
+            # sat unused until the restart after that.
+            _sync(source, probe_timeout=_PROBE_TIMEOUT)
 
         if not have:
             if source is None:
@@ -237,11 +232,6 @@ def run(context):
 
         from utp import addin
         addin.start(app, loaded_from_path="%s (%s)" % (_CODE, _installed()))
-
-        # Only once there is something running: an update fetched now takes
-        # effect at the next restart, so it must never delay this one.
-        if have and source is not None:
-            _sync_later(source)
     except Exception:
         _note("starting failed:\n%s" % traceback.format_exc())
         try:
@@ -254,11 +244,6 @@ def run(context):
 def stop(context):
     app = adsk.core.Application.get()
     try:
-        worker = _worker[0]
-        if worker is not None and worker.is_alive():
-            # Briefly: it only moves files, and a half-finished download is
-            # discarded rather than installed.
-            worker.join(timeout=2)
         from utp import addin
         addin.shutdown(app)
     except Exception:
