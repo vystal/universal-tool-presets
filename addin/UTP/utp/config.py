@@ -58,6 +58,15 @@ ONLY_DOCUMENTS_ALREADY_MARKED = True
 # presets are what operations read their feeds from. Off until the reports
 # from real files say the additions are right.
 MAY_ADD_PRESETS = True
+
+# Bring in presets a tool has in the library but this document has never
+# seen, so a UTP added at the shop can be picked in an existing job without
+# re-selecting the tool.
+MAY_SYNC_PRESETS = True
+
+# Remove copies the add-in made that nothing uses any more. Off first: this
+# is the only thing that deletes anything.
+MAY_TIDY_PRESETS = False
 MAY_BUMP_LIBRARY_VERSIONS = True
 
 # Listen to operation edits and saves. Still writes nothing while the switch

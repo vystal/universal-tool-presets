@@ -83,6 +83,64 @@ def _review_versions(cam, operations, tools, report, writing):
     return tools
 
 
+def _sync_and_tidy(cam, in_use, used_ids, report, writing):
+    """Bring in UTPs the document has never seen, and drop copies nothing needs.
+
+    Returns True if anything was written, since update() leaves every tool
+    reference taken before it stale.
+    """
+    wrote = False
+    for tool_id, library_tool in in_use.items():
+        tool = _document_tool(cam, tool_id)
+        if tool is None:
+            continue
+
+        absent = presets.missing(tool, library_tool)
+        if absent:
+            allowed = writing and config.MAY_SYNC_PRESETS
+            names = [presets.latest_name(p.name, p.version) for p in absent]
+            if not allowed:
+                report.note("would bring in presets this document has not seen",
+                            tool=library_tool.description, presets=names)
+            else:
+                for library_preset in absent:
+                    try:
+                        done = presets.apply(cam, tool, library_preset,
+                                             {"add": library_preset.name})
+                        report.note("brought in a preset from the library",
+                                    did=done)
+                        report.wrote += len(done)
+                        wrote = True
+                    except Exception:
+                        report.failed("could not bring in %s"
+                                      % library_preset.name)
+                tool = _document_tool(cam, tool_id)
+                if tool is None:
+                    continue
+
+        spare = presets.removable(tool, library_tool, used_ids)
+        if not spare:
+            continue
+        allowed = writing and config.MAY_TIDY_PRESETS
+        if not allowed:
+            report.note("would remove copies nothing uses any more",
+                        tool=library_tool.description,
+                        presets=[name for _i, name, _v in spare],
+                        held_back=("tidying is switched off" if writing
+                                   else "writing is switched off"),
+                        kept=("whatever operations point at, and the most "
+                              "recently retired copy"))
+            continue
+        try:
+            report.note("tidied the document tool library",
+                        did=presets.remove(cam, tool, spare))
+            report.wrote += len(spare)
+            wrote = True
+        except Exception:
+            report.failed("could not tidy %s" % library_tool.description)
+    return wrote
+
+
 def _ensure_presets(cam, operations, tools, report, writing):
     """Make the newer values pickable for every behind operation.
 
@@ -93,12 +151,21 @@ def _ensure_presets(cam, operations, tools, report, writing):
     tool need one new entry in the dropdown between them, not six.
     """
     wanted = {}
+    # Which presets operations actually sit on, and which tools this document
+    # uses. Both are needed before anything can be removed: a preset an
+    # operation points at must never go.
+    used_ids = set()
+    in_use = {}
     for operation in operations:
         verdict = state.reconcile(operation, tools)
-        if verdict["state"] != state.BEHIND:
-            continue
+        if verdict.get("presetId"):
+            used_ids.add(verdict["presetId"])
         tool = getattr(operation, "tool", None)
         library_tool = tools.get(library.tool_id(tool)) if tool else None
+        if library_tool is not None:
+            in_use[library.tool_id(tool)] = library_tool
+        if verdict["state"] != state.BEHIND:
+            continue
         if library_tool is None:
             continue
         # By the library preset the verdict resolved, not by the id of the
@@ -113,11 +180,12 @@ def _ensure_presets(cam, operations, tools, report, writing):
         wanted.setdefault(library_preset.id,
                           (library.tool_id(tool), library_preset))
 
+    wrote = _sync_and_tidy(cam, in_use, used_ids, report, writing)
+
     if not wanted:
-        return False
+        return wrote
 
     allowed = writing and config.MAY_ADD_PRESETS
-    wrote = False
     for tool_id, library_preset in wanted.values():
         tool = _document_tool(cam, tool_id)
         if tool is None:

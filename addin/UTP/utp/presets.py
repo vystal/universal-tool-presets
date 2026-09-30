@@ -126,6 +126,82 @@ def claiming_latest(tool, library_preset_id):
     return None
 
 
+def represented(tool, library_preset_id):
+    """Whether this document knows about a library preset at all.
+
+    Either as the copy that arrived with the tool, which keeps the library
+    preset's own id, or as a copy the add-in made, which carries that id as
+    an attribute because presets.add() gave it one of its own.
+    """
+    try:
+        for index in range(tool.presets.count):
+            preset = tool.presets.item(index)
+            if preset.id == library_preset_id:
+                return True
+            if source_of(preset) == library_preset_id:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def missing(tool, library_tool):
+    """Library presets this document has never seen.
+
+    A UTP added at the shop after a job was made is otherwise invisible in
+    that job: nothing is behind, because no operation is on it, so nothing
+    brings it in and somebody would have to re-select the tool to reach it.
+    """
+    return [preset for preset in library_tool.presets.values()
+            if not represented(tool, preset.id)]
+
+
+def removable(tool, library_tool, used_ids):
+    """Copies the add-in made that nothing needs any more, oldest first.
+
+    Three rules, and the first is the one that matters. A preset an operation
+    points at is never touched: removing one re-points those operations at
+    whatever is left, silently, without changing their values, so they end up
+    naming a preset whose feeds they do not hold.
+
+    The second is that only copies the add-in made are candidates. A preset
+    somebody created by hand, or one that arrived with the tool, is theirs.
+
+    The third is that the most recently retired copy stays even when unused.
+    The library keeps one preset per UTP with today's values, so a document's
+    retired copy is the only surviving record of what an operation used to
+    run, and after a save there is no undo to go back with.
+    """
+    ours = []
+    try:
+        for index in range(tool.presets.count):
+            preset = tool.presets.item(index)
+            source = source_of(preset)
+            if source is None or source not in library_tool.presets:
+                continue
+            if preset.id in used_ids:
+                continue
+            if (preset.name or "").endswith(config.LATEST_SUFFIX):
+                continue
+            ours.append((index, preset.name, _version_number(preset)))
+    except Exception:
+        return []
+    if len(ours) <= 1:
+        return []
+    # Newest kept, whichever that is; the rest go. Highest index first, so
+    # removing one does not shift the next.
+    ours.sort(key=lambda row: (row[2], row[0]))
+    return sorted(ours[:-1], key=lambda row: -row[0])
+
+
+def _version_number(preset):
+    """The version a copy holds, as a number for sorting. 0 if unknown."""
+    try:
+        return int(version_of(preset) or 0)
+    except Exception:
+        return 0
+
+
 def plan(tool, library_preset):
     """What this tool needs so the newer values are pickable. Empty if none."""
     copy = claiming_latest(tool, library_preset.id)
@@ -187,6 +263,29 @@ def apply(cam, tool, library_preset, intended):
         if missing:
             done.append("could not set %d values: %s"
                         % (len(missing), ", ".join(missing[:4])))
+    if done:
+        cam.documentToolLibrary.update(tool, False)
+    return done
+
+
+def remove(cam, tool, rows):
+    """Remove copies nothing needs. rows come from removable(), highest first.
+
+    ToolPresets.remove takes an index rather than a preset, which is exactly
+    the kind of call that deletes the wrong thing if the list shifts under
+    it, so the rows are applied from the end and the name is checked before
+    each one goes.
+    """
+    done = []
+    for index, name, _version in rows:
+        try:
+            if tool.presets.item(index).name != name:
+                done.append("SKIPPED %s: the list moved under us" % name)
+                continue
+            tool.presets.remove(index)
+            done.append("removed %s" % name)
+        except Exception as exc:
+            done.append("could not remove %s: %s" % (name, exc))
     if done:
         cam.documentToolLibrary.update(tool, False)
     return done
