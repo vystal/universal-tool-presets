@@ -7,7 +7,7 @@ library takes a moment, so a pass does it once and hands the result around.
 
 import adsk.cam
 
-from . import config, values
+from . import config, values, versions
 
 
 class LibraryPreset:
@@ -21,7 +21,27 @@ class LibraryPreset:
         self.values = values.scalars(preset)
         # Identity is the preset's own id, so nothing is stored for it. The
         # version is a label and may simply not be there.
-        self.version = _attribute(preset, config.KEY_VERSION)
+        #
+        # It is also only reported when it still describes what the preset
+        # holds. A number goes stale whenever the values move and the bump
+        # does not land, which happens if a library refuses the write, and a
+        # stale number gets put on a copy of values it does not describe:
+        # measured, two presets both labelled v1 holding different feeds.
+        # Withheld, everything falls back to naming by date and saying
+        # "update available", which is vaguer and never wrong.
+        stated = _attribute(preset, config.KEY_VERSION)
+        self.version = stated if self._describes(preset, stated) else None
+
+    @staticmethod
+    def _describes(preset, stated):
+        if not stated:
+            return False
+        snapshot = versions.stored_snapshot(preset)
+        if snapshot is None:
+            return False
+        held = values.scalars(preset)
+        return not (values.differences(held, snapshot)
+                    or set(held) != set(snapshot))
 
     @property
     def label(self):
