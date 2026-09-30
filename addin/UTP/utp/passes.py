@@ -411,6 +411,12 @@ def run(app):
                     if e.get("written") and e["written"] != "failed")
         if not understood:
             headline = refusal
+            # Assigned here too, or standing down raises on the way out and
+            # the person is told the check crashed when in fact it did
+            # exactly what it should: worked everything out and wrote none
+            # of it.
+            tail = ("%d operations were still worked out; the report says "
+                    "what it found." % len(operations))
         elif writing:
             headline = "Marked %d of %d operations." % (wrote, len(operations))
             tail = "One Ctrl+Z undoes the lot; the document is not saved."
