@@ -143,9 +143,16 @@ class Report:
             for key in sorted(kinds):
                 out.append("- **%s:** %d operations" % (key, kinds[key]))
             for message, detail in self.lines:
-                if "did" in detail:
-                    out.append("- **the document tool library:** %s"
-                               % ", ".join(detail["did"]))
+                if "did" not in detail:
+                    continue
+                did = detail["did"]
+                # A list of things done, or one sentence describing them.
+                # Joining a string iterates its characters, which is how this
+                # once rendered a note one letter per line.
+                if isinstance(did, str):
+                    out.append("- **%s:** %s" % (message, did))
+                else:
+                    out.append("- **%s:** %s" % (message, ", ".join(did)))
             if not kinds and not self.wrote:
                 out.append("- nothing on any operation")
             out.append("")
