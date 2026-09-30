@@ -51,6 +51,9 @@ def _document_tool(cam, tool_id):
 def _review_versions(cam, operations, tools, report, writing):
     """Bring version numbers up to date, for the UTPs this document uses.
 
+    Returns the libraries to carry on with: after a bump they have to be read
+    again, or the pass that moved a number writes notes that do not carry it.
+
     Only the presets in hand, never all of them: this runs on a button press
     and every library write is risk for no gain. A library nobody has stamped
     still works; its notes just carry no numbers.
@@ -69,12 +72,15 @@ def _review_versions(cam, operations, tools, report, writing):
         if preset is not None:
             wanted[preset.id] = preset
     if not wanted:
-        return
+        return tools
     libraries = adsk.cam.CAMManager.get().libraryManager.toolLibraries
     allowed = writing and config.MAY_BUMP_LIBRARY_VERSIONS
     if versions.review(libraries, wanted.values(), report, allowed) and allowed:
         library.forget()          # the numbers just moved; read them again
-        library.cached(report, adsk.doEvents, force=True)
+        fresh, ok = library.cached(report, adsk.doEvents, force=True)
+        if ok:
+            return fresh
+    return tools
 
 
 def _ensure_presets(cam, operations, tools, report, writing):
@@ -293,8 +299,10 @@ def run(app):
         report.note("found operations", count=len(operations),
                     writing="yes" if writing else "no")
 
-        # Versions before anything reads them, so a note can name one.
-        _review_versions(cam, operations, tools, report, writing)
+        # Versions before anything reads them, so a note can name one. The
+        # refreshed libraries are taken back, because a bump changes what
+        # every later step should be reading.
+        tools = _review_versions(cam, operations, tools, report, writing)
 
         # Presets first, notes second. A behind operation's note is worth
         # little until the newer values are pickable in its dropdown, and

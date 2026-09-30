@@ -58,7 +58,7 @@ ONLY_DOCUMENTS_ALREADY_MARKED = True
 # presets are what operations read their feeds from. Off until the reports
 # from real files say the additions are right.
 MAY_ADD_PRESETS = True
-MAY_BUMP_LIBRARY_VERSIONS = False
+MAY_BUMP_LIBRARY_VERSIONS = True
 
 # Listen to operation edits and saves. Still writes nothing while the switch
 # above is off; it records what it would have done to the session log.

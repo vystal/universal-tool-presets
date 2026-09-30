@@ -59,10 +59,18 @@ def needed(preset):
     version = stored_version(preset)
     snapshot = stored_snapshot(preset)
 
-    if version is None or snapshot is None:
+    if version is None:
         # Adopted, not rewritten: whatever it holds today is version 1, so
         # nobody has to rename or rebuild anything to join the system.
         return 1, current, "adopted as version 1"
+
+    if snapshot is None:
+        # The number survived but the values it stands for did not, which a
+        # half-finished write would leave behind. Recording them is not a new
+        # version, so the number is kept: treating this as never stamped
+        # would drop a preset from v5 back to v1 and tell every document
+        # holding v5 that it was somehow ahead of the library.
+        return version, current, "version %d kept, its values re-recorded" % version
 
     if values.differences(current, snapshot) or set(current) != set(snapshot):
         return version + 1, current, "its values have changed since version %d" % version
