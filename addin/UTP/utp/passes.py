@@ -312,7 +312,16 @@ def _operations(cam):
     return found
 
 
-def _within(owner):
+def _within(owner, seen=None):
+    """Every operation under a setup, folder or pattern.
+
+    Counted as it goes, because this walk has never met a folder: a real job
+    organises its operations into them, and a walk that quietly failed to
+    descend would leave whole sections of a file with no notes and nothing
+    anywhere saying they had been missed.
+    """
+    if seen is None:
+        seen = {"folders": 0, "patterns": 0, "deepest": 0, "loose": 0}
     found = []
     for attribute in ("operations", "folders", "patterns"):
         try:
@@ -327,8 +336,32 @@ def _within(owner):
             if attribute == "operations":
                 found.append(item)
             else:
-                found.extend(_within(item))
+                seen[attribute] += 1
+                inside = _within(item, seen)
+                seen["deepest"] = max(seen["deepest"], 1)
+                found.extend(inside)
     return found
+
+
+def _shape(cam):
+    """What the tree actually looks like, for the report to state."""
+    seen = {"folders": 0, "patterns": 0, "deepest": 0, "loose": 0}
+    total = 0
+    try:
+        for index in range(cam.setups.count):
+            setup = cam.setups.item(index)
+            try:
+                seen["loose"] += setup.operations.count
+            except Exception:
+                pass
+            total += len(_within(setup, seen))
+    except Exception:
+        pass
+    seen["operations found"] = total
+    seen["directly under a setup"] = seen.pop("loose")
+    seen["inside a folder or pattern"] = total - seen["directly under a setup"]
+    seen.pop("deepest", None)
+    return seen
 
 
 def run(app):
@@ -365,7 +398,7 @@ def run(app):
             events.joined(document)
         operations = _operations(cam)
         report.note("found operations", count=len(operations),
-                    writing="yes" if writing else "no")
+                    writing="yes" if writing else "no", **_shape(cam))
 
         # Versions before anything reads them, so a note can name one. The
         # refreshed libraries are taken back, because a bump changes what

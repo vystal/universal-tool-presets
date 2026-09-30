@@ -24,6 +24,10 @@ Files that predate the system stay silent. An operation joins when somebody
 puts it on a UTP preset, which is why turning this on changes nothing until
 people start using it.
 
+For the people who will see these notes without knowing any of this exists,
+there is a page written for them: [what the notes
+mean](docs/what-the-notes-mean.md).
+
 ## Installing
 
 Copy `addin/loader/UTP` into Fusion's add-ins folder:
