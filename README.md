@@ -50,6 +50,16 @@ as assets; the loader reads `releases/latest/download/`, so that is what puts
 it in service. The version comes from `addin/UTP/utp/version.py` and nowhere
 else.
 
+GitHub serves release assets through a cache, measured at around a minute and
+a half, so a machine starting Fusion immediately after a release may not see
+it until the next restart. The loader records the version it reads out of the
+downloaded code rather than the one the `VERSION` file claimed, so a machine
+never reports running something it is not.
+
+**The loader itself does not update this way**, being the thing that does the
+updating. A change to `addin/loader/UTP/UTP.py` has to be copied to each
+machine by hand, which is why it is kept small and boring.
+
 Raise `SCHEMA` in `addin/UTP/utp/config.py` when the meaning of anything
 written changes — a note's wording, a preset naming convention, what an
 attribute means. An add-in that meets data written by a higher schema than it

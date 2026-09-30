@@ -123,6 +123,26 @@ def _installed():
         return None
 
 
+def _version_in(folder):
+    """The version the downloaded code says it is.
+
+    Read from the package rather than believed from the VERSION file. GitHub
+    serves release assets through a cache: measured, a VERSION 85 seconds
+    stale while the zip beside it was current. Trusting the probe would let a
+    machine run one version while recording another, and a report claiming a
+    version it is not running is worse than no version at all.
+    """
+    path = os.path.join(folder, "utp", "version.py")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("VERSION"):
+                    return line.split("=", 1)[1].strip().strip("\"'")
+    except Exception:
+        pass
+    return None
+
+
 def _usable(folder):
     """Whether an unpacked download looks like the add-in.
 
@@ -183,10 +203,16 @@ def _sync(source, probe_timeout=_TIMEOUT):
             os.rename(_CODE, replaced)
         shutil.move(unpacked, _CODE)
         shutil.rmtree(replaced, ignore_errors=True)
+        # What the code says it is, not what the probe said. They differ
+        # while the cache is catching up with a release.
+        installed = _version_in(_CODE) or available
         with open(_STAMP, "w", encoding="utf-8") as handle:
-            handle.write(available)
-        _note("installed %s" % available)
-        return available
+            handle.write(installed)
+        if installed != available:
+            _note("the version file said %s but the code is %s; recorded the "
+                  "code" % (available, installed))
+        _note("installed %s" % installed)
+        return installed
     except Exception:
         _note("installing failed:\n%s" % traceback.format_exc())
         return None
