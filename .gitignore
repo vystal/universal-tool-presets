@@ -1,0 +1,14 @@
+# Built release assets
+dist/
+
+# Local only: the Fusion test harness and its output
+tests/
+
+# Local working notes
+CLAUDE.md
+
+__pycache__/
+*.pyc
+
+# Fusion generates this when an add-in folder is registered
+.vscode/

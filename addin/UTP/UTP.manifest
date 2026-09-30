@@ -1,0 +1,11 @@
+{
+    "autodeskProduct": "Fusion360",
+    "type": "addin",
+    "author": "",
+    "description": {
+        "": "Universal Tool Presets, phase 1: reads the Hub libraries, works out every operation's verdict, writes a report. Changes nothing."
+    },
+    "supportedOS": "windows|mac",
+    "editEnabled": true,
+    "runOnStartup": false
+}

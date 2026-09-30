@@ -1,0 +1,11 @@
+{
+    "autodeskProduct": "Fusion360",
+    "type": "addin",
+    "author": "",
+    "description": {
+        "": "Universal Tool Presets. Keeps operation notes honest against the shop's Hub tool libraries, and keeps itself up to date from a published release."
+    },
+    "supportedOS": "windows|mac",
+    "editEnabled": true,
+    "runOnStartup": true
+}
