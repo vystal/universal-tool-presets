@@ -127,6 +127,16 @@ RETIRED_FORMAT = "%d %b %Y"
 # adjusts a UTP twice while a job is running.
 RETIRED_FORMAT_EXACT = "%d %b %Y %H:%M"
 
+# A setup's note. A collapsed setup hides its operations' icons entirely, so
+# without this somebody working with everything folded up sees nothing at all.
+# The colour answers "do I need to look in here", the text says what is in it.
+# Only "behind" is a task, so only "behind" turns it yellow: custom is
+# somebody's decision, and operations that were never on a UTP are counted out
+# rather than counted against.
+SETUP_BEHIND = "%d of %d need updating"
+SETUP_CUSTOM = "%d tracked, %d custom"
+SETUP_CLEAN = "%d tracked, up to date"
+
 ICON_FOR_STATE = {
     "current": "Green",
     "behind": "Yellow",

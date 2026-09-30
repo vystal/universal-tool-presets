@@ -139,6 +139,41 @@ def _ensure_presets(cam, operations, tools, report, writing):
     return wrote
 
 
+def _mark_setups(cam, tools, report, writing):
+    """A signpost on each setup, because a collapsed one hides everything.
+
+    Done after the operations, so it describes what they have just become
+    rather than what they were.
+    """
+    for setup, operations in by_setup(cam):
+        counts = {}
+        for operation in operations:
+            try:
+                verdict = state.reconcile(operation, tools)
+            except Exception:
+                continue
+            counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
+        try:
+            changes = marks.setup_plan(setup, counts)
+        except Exception:
+            report.failed("could not work out a note for a setup")
+            continue
+        if not changes:
+            continue
+        name = getattr(setup, "name", "?")
+        if not writing:
+            report.note("would mark the setup %s" % name,
+                        would=marks.describe(changes))
+            continue
+        try:
+            marks.apply(setup, changes)
+            report.wrote += len(changes)
+            report.note("marked the setup %s" % name,
+                        did=marks.describe(changes))
+        except Exception:
+            report.failed("could not mark the setup %s" % name)
+
+
 def _writable(document, report):
     """Whether it is safe to write to this document.
 
@@ -165,6 +200,18 @@ def _writable(document, report):
     except Exception:
         pass
     return True
+
+
+def by_setup(cam):
+    """[(setup, [operations])], so a setup can be told what is inside it."""
+    found = []
+    try:
+        for index in range(cam.setups.count):
+            setup = cam.setups.item(index)
+            found.append((setup, _within(setup)))
+    except Exception:
+        pass
+    return found
 
 
 def operations_of(document):
@@ -277,6 +324,8 @@ def run(app):
                     operation, "name", "an operation"))
             if index % config.OPERATIONS_PER_CHUNK == 0:
                 adsk.doEvents()
+
+        _mark_setups(cam, tools, report, writing)
 
         counts = dict(report.counts)
         path = report.close()

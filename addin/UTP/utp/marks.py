@@ -43,6 +43,44 @@ def note_line(verdict):
     return None
 
 
+def setup_line(counts):
+    """What a setup says about the operations inside it, or None.
+
+    Colour answers "do I need to look in here", text says what is in it.
+    Operations that were never on a UTP are counted out rather than counted
+    against: a setup of twenty legacy operations has nothing to say, exactly
+    as those operations have nothing to say themselves.
+    """
+    behind = counts.get(state.BEHIND, 0)
+    custom = counts.get(state.CUSTOM, 0)
+    tracked = behind + custom + counts.get(state.CURRENT, 0)
+    if not tracked:
+        return None, None
+    if behind:
+        return (config.NOTE_PREFIX + config.SETUP_BEHIND % (behind, tracked),
+                "Yellow")
+    if custom:
+        # Green, because a deliberate override is not a task. The count is
+        # still said, so green cannot be read as "everything here is on the
+        # shop's presets".
+        return (config.NOTE_PREFIX + config.SETUP_CUSTOM % (tracked, custom),
+                "Green")
+    return config.NOTE_PREFIX + config.SETUP_CLEAN % tracked, "Green"
+
+
+def setup_plan(setup, counts):
+    """What would change on a setup. Empty means nothing to do."""
+    line, colour = setup_line(counts)
+    changes = {}
+    existing = _notes(setup)
+    wanted = merge(existing, line)
+    if wanted != (existing or ""):
+        changes["note"] = {"from": existing or "", "to": wanted}
+    if colour is not None and _icon(setup) != colour:
+        changes["icon"] = {"from": _icon(setup), "to": colour}
+    return changes
+
+
 def merge(existing, line):
     """The note the add-in would leave behind, ours first and theirs below.
 
