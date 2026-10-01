@@ -281,9 +281,13 @@ def remove_marks(app):
                 if not changes:
                     continue
                 try:
-                    marks.unapply(owner, changes)
+                    done = marks.unapply(owner, changes)
                     report.wrote += len(changes)
                     cleared += 1
+                    # Named, not just counted. A command whose job is removal
+                    # should say what it removed.
+                    report.note("unmarked %s" % getattr(owner, "name", "?"),
+                                did=", ".join(done))
                 except Exception:
                     report.failed("could not unmark %s"
                                   % getattr(owner, "name", "?"))
