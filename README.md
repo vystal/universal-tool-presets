@@ -125,11 +125,15 @@ All in `addin/UTP/utp/config.py`.
 | `MAY_WRITE_ON_EVENTS` | edits and saves keep a document up to date |
 | `MAY_ADD_PRESETS` | newer versions may be added to a document's tool library |
 | `MAY_BUMP_LIBRARY_VERSIONS` | version numbers may be written to the Hub libraries |
+| `MAY_SYNC_PRESETS` | UTPs added at the shop are brought into documents that use the tool |
+| `MAY_TIDY_PRESETS` | copies nothing uses any more may be removed |
 | `ONLY_DOCUMENTS_ALREADY_MARKED` | a rollout guard: events only touch documents the button has been pressed in |
 
-Every one of them starts off. Turn them on in that order, reading the report
-each time: with writing off the add-in still works out and records exactly
-what it would have done.
+All of them are on, and `ONLY_DOCUMENTS_ALREADY_MARKED` is off, which is the
+ordinary working state. They were turned on one at a time, reading the report
+in between: with any of them off the add-in still works out and records
+exactly what it would have done, which is how to introduce this somewhere
+new or to look into something without changing anything.
 
 ## Where it writes
 

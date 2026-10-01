@@ -60,11 +60,13 @@ KEY_VALUES = "values"
 MAY_WRITE_ON_DEMAND = True      # the button: one document, one deliberate press
 MAY_WRITE_ON_EVENTS = True      # edits and saves keep a document honest
 
-# A rollout guard, not part of the design. Edits and saves only write to a
-# document the button has already been pressed in, so opening a real job and
-# saving it cannot quietly mark it. Turn this off once the system is in
-# ordinary use, when a save should bring any document up to date.
-ONLY_DOCUMENTS_ALREADY_MARKED = True
+# Was a rollout guard: edits and saves only wrote to a document the button
+# had already been pressed in, so a first deployment could not quietly mark a
+# real job. Turned off on 2 October, once three jobs had behaved, because in
+# ordinary use a save should bring any document up to date without somebody
+# having to remember to press anything. Set it back to True to make the
+# add-in wait for a deliberate press in each document again.
+ONLY_DOCUMENTS_ALREADY_MARKED = False
 
 # Adding presets to a document's tool library. A bigger write than a note:
 # presets are what operations read their feeds from. Off until the reports
@@ -76,9 +78,12 @@ MAY_ADD_PRESETS = True
 # re-selecting the tool.
 MAY_SYNC_PRESETS = True
 
-# Remove copies the add-in made that nothing uses any more. Off first: this
-# is the only thing that deletes anything.
-MAY_TIDY_PRESETS = False
+# Remove copies the add-in made that nothing uses any more. The only thing
+# here that deletes anything, so it is narrow: never a preset an operation
+# points at, never one somebody made or that arrived with the tool, and the
+# most recently retired copy is kept because the library holds only today's
+# values and that copy is the last record of what an operation used to run.
+MAY_TIDY_PRESETS = True
 MAY_BUMP_LIBRARY_VERSIONS = True
 
 # Listen to operation edits and saves. Still writes nothing while the switch
