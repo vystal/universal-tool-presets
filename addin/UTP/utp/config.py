@@ -1,7 +1,19 @@
-"""Names, keys and switches. No logic lives here.
+"""Names, keys, wording and switches. No logic lives here.
 
-Everything that might need changing without reading any other file is in
-this module, so none of it ends up buried in a decision somewhere.
+Everything a person sees in Fusion is in this file: what a note says, what
+colour it is, how a version is written, what the presets in a dropdown are
+called, every dialog message, and every switch. Change any of it here and
+nowhere else.
+
+What is deliberately not here is the prose in the reports and the session
+log, the "could not read library" and "the newer values are already
+pickable" lines. Those explain what happened to whoever reads a report when
+something looks wrong, and they live beside the code that produces them,
+because hoisting sixty of them into this file would make both harder to
+read. Nothing in the reports is seen in the course of ordinary work.
+
+Nothing in this file is a decision either. What counts as behind, current or
+custom is settled by comparing values, whatever the wording says.
 """
 
 import os
@@ -113,8 +125,20 @@ REPORT_DIR = os.path.join(
 # What a note says
 # ---------------------------------------------------------------------------
 
+# Everything below is wording or colour, and changing any of it changes only
+# what people read. Nothing here is a decision: what counts as behind,
+# current or custom is settled by comparing values, whatever these say.
+#
+# One exception worth knowing: NOTE_PREFIX is how the add-in recognises its
+# own line in a note somebody else has also written in. Changing it while
+# files already carry notes leaves those old lines orphaned, so they would be
+# treated as a person's text and kept. Raise SCHEMA above if you change it.
+
 # The add-in owns the first line of a note; this is how it knows which line.
 NOTE_PREFIX = "[UTP] "
+
+# How a version is shown wherever one appears: in a note and in the dropdown.
+VERSION_LABEL = "%s v%s"
 NOTE_SEPARATOR = "·"
 NOTE_CUSTOM = "Custom"
 
@@ -156,14 +180,60 @@ ICON_FOR_STATE = {
 # name so an unchanged icon is not reported as a change.
 ICON_NAMES = ("Gray", "Red", "Blue", "Green", "Yellow")
 
+# What an unmarked operation shows. Measured: every operation with no note
+# reports Gray, so this is the absence of a colour rather than a choice.
+ICON_DEFAULT = "Gray"
+
+# ---------------------------------------------------------------------------
+# What a dialog says
+# ---------------------------------------------------------------------------
+
+DIALOG_TITLE = "UTP"
+MARKED = "Marked %d of %d operations."
+MARKED_TAIL = "One Ctrl+Z undoes the lot; the document is not saved."
+CHECKED = "Checked %d operations. Nothing was changed."
+CHECKED_TAIL = ("Writing is off. %d operations would have been marked; the "
+                "report says exactly how.")
+STOOD_DOWN_TAIL = ("%d operations were still worked out; the report says what "
+                   "it found.")
+EVENTS_SEEN = "%d events recorded this session:\n%s"
+NOTHING_TO_CHECK = "Nothing to check: no Manufacture data here."
+NO_LIBRARY = "The Hub library could not be read, so nothing was decided."
+STOPPED_EARLY = "The check stopped early; see the report."
+FAILED = "UTP could not finish %s.\n\n%s"
+NO_PANEL = ("UTP started, but no panel would take the button.\n\n"
+            "Run it from Utilities > Add-Ins > Scripts and Add-Ins instead.")
+
+# Shown when a file was written by a newer add-in than this one.
+NEWER_ADDIN = ("this file was written by a newer UTP add-in (schema %d, this "
+               "one understands %d). It will be read and reported on, but "
+               "not changed. Update the add-in on this machine.")
+
 # ---------------------------------------------------------------------------
 # The button
+# ---------------------------------------------------------------------------
+
+UNMARKED = ("Removed every UTP mark from %d of %d operations and setups.\n\n"
+            "One Ctrl+Z puts them back. Presets were left alone, because an "
+            "operation may be using one.")
+READ_ONLY = "This file is read-only, so nothing was changed."
+UNMARK_CONFIRM = ("Remove every UTP note, colour and record from this "
+                  "document?\n\nPresets are left alone. One Ctrl+Z puts it "
+                  "all back, and the document is not saved.")
+
+# ---------------------------------------------------------------------------
+# The buttons
 # ---------------------------------------------------------------------------
 
 COMMAND_ID = "UTPCheckDocument"
 COMMAND_NAME = "UTP: check this document"
 COMMAND_TOOLTIP = ("Works out what the UTP add-in would say about every "
                    "operation here, and writes it to a file. Changes nothing.")
+
+UNMARK_COMMAND_ID = "UTPRemoveMarks"
+UNMARK_COMMAND_NAME = "UTP: remove all marks from this document"
+UNMARK_COMMAND_TOOLTIP = ("Takes every UTP note, colour and record back out "
+                          "of this document. Presets are left alone.")
 
 # Whichever of these panels exists on this build gets the button. Panel ids
 # move between Fusion releases, so this is a list rather than a guess.

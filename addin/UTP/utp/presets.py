@@ -21,7 +21,7 @@ def latest_name(name, version=None):
     """What the newest copy is called in the dropdown."""
     base = without_suffix(name)
     if version:
-        base = "%s v%s" % (base, version)
+        base = config.VERSION_LABEL % (base, version)
     return "%s %s" % (base, config.LATEST_SUFFIX)
 
 
@@ -34,7 +34,7 @@ def retired_name(name, taken=(), when=None, version=None):
     yet, and reads far worse for exactly that reason.
     """
     if version:
-        numbered = "%s v%s" % (without_suffix(name), version)
+        numbered = config.VERSION_LABEL % (without_suffix(name), version)
         if numbered not in set(taken):
             return numbered
     return _dated_name(name, taken, when)

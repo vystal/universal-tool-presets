@@ -248,6 +248,56 @@ def _mark_setups(cam, tools, report, writing):
             report.failed("could not mark the setup %s" % name)
 
 
+def remove_marks(app):
+    """Take every trace of the add-in back out of the active document.
+
+    The way back out, so installing this is not a one-way door. It lands as
+    one undo step like any other pass, and it leaves presets alone: an
+    operation may be on one the add-in added, and removing that would
+    re-point it without changing its values.
+    """
+    document = app.activeDocument
+    report = diagnostics.Report((document.name if document else "?") + " - unmark")
+    try:
+        products = document.products if document else None
+        cam = products.itemByProductType("CAMProductType") if products else None
+        if cam is None:
+            report.note("this document has no manufacturing data")
+            return report.close(), {}, config.NOTHING_TO_CHECK
+        if not _writable(document, report):
+            return report.close(), {}, config.READ_ONLY
+
+        cleared = 0
+        looked = 0
+        for setup, operations in by_setup(cam):
+            for owner in [setup] + list(operations):
+                looked += 1
+                try:
+                    changes = marks.strip(owner)
+                except Exception:
+                    report.failed("could not look at %s"
+                                  % getattr(owner, "name", "?"))
+                    continue
+                if not changes:
+                    continue
+                try:
+                    marks.unapply(owner, changes)
+                    report.wrote += len(changes)
+                    cleared += 1
+                except Exception:
+                    report.failed("could not unmark %s"
+                                  % getattr(owner, "name", "?"))
+                if looked % config.OPERATIONS_PER_CHUNK == 0:
+                    adsk.doEvents()
+        report.note("unmarked", looked_at=looked, cleared=cleared,
+                    presets="left alone; an operation may be using one")
+        return (report.close(), {"cleared": cleared},
+                config.UNMARKED % (cleared, looked))
+    except Exception:
+        report.failed("unmarking stopped early")
+        return report.close(), {}, config.STOPPED_EARLY
+
+
 def _writable(document, report):
     """Whether it is safe to write to this document.
 
@@ -373,7 +423,7 @@ def run(app):
         cam = products.itemByProductType("CAMProductType") if products else None
         if cam is None:
             report.note("this document has no manufacturing data")
-            return report.close(), {}, "Nothing to check: no Manufacture data here."
+            return report.close(), {}, config.NOTHING_TO_CHECK
 
         # Pressing the button is also what warms the cache the edit handler
         # needs, so it always re-reads rather than trusting an old read.
@@ -381,7 +431,7 @@ def run(app):
         if not ok:
             report.note("stopping: without the library nothing can be decided")
             return (report.close(), {},
-                    "The Hub library could not be read, so nothing was decided.")
+                    config.NO_LIBRARY)
 
         writing = config.MAY_WRITE_ON_DEMAND and _writable(document, report)
         # A file written by a newer add-in is read and reported on, never
@@ -448,21 +498,19 @@ def run(app):
             # the person is told the check crashed when in fact it did
             # exactly what it should: worked everything out and wrote none
             # of it.
-            tail = ("%d operations were still worked out; the report says "
-                    "what it found." % len(operations))
+            tail = config.STOOD_DOWN_TAIL % len(operations)
         elif writing:
-            headline = "Marked %d of %d operations." % (wrote, len(operations))
-            tail = "One Ctrl+Z undoes the lot; the document is not saved."
+            headline = config.MARKED % (wrote, len(operations))
+            tail = config.MARKED_TAIL
         else:
-            headline = "Checked %d operations. Nothing was changed." % len(operations)
-            tail = ("Writing is off. %d operations would have been marked; "
-                    "the report says exactly how." % planned)
+            headline = config.CHECKED % len(operations)
+            tail = config.CHECKED_TAIL % planned
         events_seen = diagnostics.session_count()
         if events_seen:
-            tail += ("\n\n%d events recorded this session:\n%s"
-                     % (events_seen, diagnostics.session_path()))
+            tail += "\n\n" + config.EVENTS_SEEN % (events_seen,
+                                                   diagnostics.session_path())
         return path, counts, ("%s\n\n%s\n\n%s"
                               % (headline, summary or "nothing found", tail))
     except Exception:
         report.failed("the pass stopped early")
-        return report.close(), {}, "The check stopped early; see the report."
+        return report.close(), {}, config.STOPPED_EARLY

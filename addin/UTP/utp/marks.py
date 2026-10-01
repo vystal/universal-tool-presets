@@ -15,7 +15,7 @@ from . import compat, config, state
 def _named(verdict, version):
     """The UTP's name, with a version when one is known."""
     name = verdict.get("preset") or "?"
-    return "%s v%s" % (name, version) if version else name
+    return config.VERSION_LABEL % (name, version) if version else name
 
 
 def note_line(verdict):
@@ -151,6 +151,62 @@ def busy():
     event handling.
     """
     return _writing["depth"] > 0
+
+
+def strip(owner):
+    """What removing every trace from one operation or setup would change.
+
+    The way back out. An add-in that marks a hundred files and cannot unmark
+    them is one nobody should install, so this undoes everything it writes:
+    its line out of the note, the icon back to the default, the record gone.
+
+    It does not touch presets. An operation may be sitting on one the add-in
+    added, and removing that would re-point it at another preset without
+    changing its values, which is the one genuinely dangerous thing here.
+    """
+    changes = {}
+    existing = _notes(owner)
+    wanted = merge(existing, None)
+    if wanted != (existing or ""):
+        changes["note"] = {"from": existing or "", "to": wanted}
+    now = _icon(owner)
+    if now is not None and now != config.ICON_DEFAULT:
+        changes["icon"] = {"from": now, "to": config.ICON_DEFAULT}
+    held = []
+    for key in (config.KEY_ADOPTED_PRESET, config.KEY_OPERATION_ID,
+                config.KEY_SCHEMA):
+        try:
+            if owner.attributes.itemByName(config.ATTRIBUTE_GROUP, key):
+                held.append(key)
+        except Exception:
+            continue
+    if held:
+        changes["record"] = {"remove": held}
+    return changes
+
+
+def unapply(owner, changes):
+    """Carry out a strip(). Returns what actually went."""
+    done = []
+    if "note" in changes:
+        owner.notes = changes["note"]["to"]
+        done.append("note")
+    if "icon" in changes:
+        import adsk.cam
+        value = getattr(adsk.cam.NoteIconColors, changes["icon"]["to"], None)
+        if value is not None:
+            owner.noteIconColor = value
+            done.append("icon")
+    if "record" in changes:
+        for key in changes["record"]["remove"]:
+            try:
+                found = owner.attributes.itemByName(config.ATTRIBUTE_GROUP, key)
+                if found:
+                    found.deleteMe()
+            except Exception:
+                continue
+        done.append("record")
+    return done
 
 
 def apply(operation, changes):

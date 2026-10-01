@@ -39,24 +39,62 @@ class _CommandExecute(adsk.core.CommandEventHandler):
         try:
             from . import passes
             path, _counts, message = passes.run(app)
-            where = "\n\nReport:\n%s" % path if path else ""
-            app.userInterface.messageBox(message + where, "UTP")
+            _say(app, message, path)
         except Exception:
             _report_failure("checking the document")
+
+
+class _UnmarkCreated(adsk.core.CommandCreatedEventHandler):
+    def notify(self, args):
+        try:
+            execute = _UnmarkExecute()
+            args.command.execute.add(execute)
+            _handlers.append(execute)
+            args.command.isAutoExecute = True
+        except Exception:
+            _report_failure("preparing the command")
+
+
+class _UnmarkExecute(adsk.core.CommandEventHandler):
+    """Taking it all back out.
+
+    Asked about first: it is the one command whose whole purpose is to
+    remove things somebody may want to keep.
+    """
+
+    def notify(self, args):
+        app = adsk.core.Application.get()
+        try:
+            answer = app.userInterface.messageBox(
+                config.UNMARK_CONFIRM, config.DIALOG_TITLE,
+                adsk.core.MessageBoxButtonTypes.YesNoButtonType)
+            if answer != adsk.core.DialogResults.DialogYes:
+                return
+            from . import passes
+            path, _counts, message = passes.remove_marks(app)
+            _say(app, message, path)
+        except Exception:
+            _report_failure("removing the marks")
+
+
+def _say(app, message, path):
+    where = "\n\nReport:\n%s" % path if path else ""
+    app.userInterface.messageBox(message + where, config.DIALOG_TITLE)
 
 
 def _report_failure(what):
     app = adsk.core.Application.get()
     try:
         app.userInterface.messageBox(
-            "UTP could not finish %s.\n\n%s" % (what, traceback.format_exc()),
-            "UTP")
+            config.FAILED % (what, traceback.format_exc()),
+            config.DIALOG_TITLE)
     except Exception:
         pass
 
 
-def _add_button(ui, definition):
+def _add_button(ui, definition, command_id=None):
     """Put the button wherever this build keeps its Manufacture panels."""
+    command_id = command_id or config.COMMAND_ID
     for workspace_id, panel_id in config.CANDIDATE_PANELS:
         try:
             workspace = ui.workspaces.itemById(workspace_id)
@@ -65,7 +103,7 @@ def _add_button(ui, definition):
             panel = workspace.toolbarPanels.itemById(panel_id)
             if panel is None:
                 continue
-            existing = panel.controls.itemById(config.COMMAND_ID)
+            existing = panel.controls.itemById(command_id)
             if existing:
                 existing.deleteMe()
             return panel.controls.addCommand(definition)
@@ -92,15 +130,23 @@ def start(app, loaded_from_path=None):
             from . import events
             events.arm(app)
 
+        unmark = definitions.itemById(config.UNMARK_COMMAND_ID)
+        if unmark:
+            unmark.deleteMe()
+        unmark = definitions.addButtonDefinition(
+            config.UNMARK_COMMAND_ID, config.UNMARK_COMMAND_NAME,
+            config.UNMARK_COMMAND_TOOLTIP)
+        unmark_created = _UnmarkCreated()
+        unmark.commandCreated.add(unmark_created)
+        _handlers.append(unmark_created)
+
         _state["control"] = _add_button(ui, definition)
+        _state["unmark"] = _add_button(ui, unmark, config.UNMARK_COMMAND_ID)
         diagnostics.session_log("started", version=version.VERSION,
                                 loaded_from=loaded_from_path or "in place",
                                 schema=config.SCHEMA)
         if _state["control"] is None:
-            ui.messageBox(
-                "UTP started, but no panel would take the button.\n\n"
-                "Run it from Utilities > Add-Ins > Scripts and Add-Ins "
-                "instead.", "UTP")
+            ui.messageBox(config.NO_PANEL, config.DIALOG_TITLE)
     except Exception:
         _report_failure("starting")
 
@@ -113,12 +159,14 @@ def shutdown(app):
             events.disarm(app)
         except Exception:
             pass
-        if _state.get("control"):
-            _state["control"].deleteMe()
-        _state["control"] = None
-        definition = ui.commandDefinitions.itemById(config.COMMAND_ID)
-        if definition:
-            definition.deleteMe()
+        for key in ("control", "unmark"):
+            if _state.get(key):
+                _state[key].deleteMe()
+            _state[key] = None
+        for command_id in (config.COMMAND_ID, config.UNMARK_COMMAND_ID):
+            definition = ui.commandDefinitions.itemById(command_id)
+            if definition:
+                definition.deleteMe()
         del _handlers[:]
     except Exception:
         _report_failure("stopping")

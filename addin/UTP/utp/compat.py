@@ -69,8 +69,5 @@ def may_write(newest):
     have.
     """
     if newest > config.SCHEMA:
-        return False, ("this file was written by a newer UTP add-in "
-                       "(schema %d, this one understands %d). It will be read "
-                       "and reported on, but not changed. Update the add-in on "
-                       "this machine." % (newest, config.SCHEMA))
+        return False, config.NEWER_ADDIN % (newest, config.SCHEMA)
     return True, None

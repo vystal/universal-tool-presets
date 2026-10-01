@@ -90,6 +90,31 @@ same way, so the release path is used daily rather than trusted once.
 Install either the repo copy or the loader on a given machine, not both: they
 register the same command and would fight over the button.
 
+## Changing what it says
+
+Everything a person sees in Fusion is in `addin/UTP/utp/config.py`: what a
+note says, its colour, how a version is written, what the presets in a
+dropdown are called, every dialog message, and every switch. Nothing in that
+file is a decision — what counts as behind, current or custom is settled by
+comparing values, whatever the wording says.
+
+The prose in the reports and the session log is deliberately not there. It
+explains what happened to whoever reads a report when something looks odd,
+and it lives beside the code that produces it.
+
+If you change `NOTE_PREFIX`, raise `SCHEMA` as well: it is how the add-in
+recognises its own line in a note somebody has also written in, and files
+already carrying the old prefix would have those lines treated as a person's
+text and left alone.
+
+## Taking it back out
+
+**UTP: remove all marks from this document** removes every note, colour and
+record the add-in has written there. It asks first, lands as one undo step,
+and leaves presets alone — an operation may be sitting on one it added, and
+removing that would re-point the operation at another preset without
+changing its values.
+
 ## Switches
 
 All in `addin/UTP/utp/config.py`.
