@@ -38,6 +38,11 @@ class Report:
         self.operations = []
         self.counts = {}
         self.wrote = 0          # counted, so the header cannot claim otherwise
+        # Counted so that deleting can refuse to act on a pass that went
+        # wrong: the operation walk is defensive, so a collection that threw
+        # leaves an operation invisible rather than raising, and an invisible
+        # operation's preset is one nothing is protecting.
+        self.failures = 0
         try:
             os.makedirs(self.dir, exist_ok=True)
             self.stream = open(self.base + ".jsonl", "a", encoding="utf-8")
@@ -64,6 +69,7 @@ class Report:
         self._emit("note", dict(detail, message=message))
 
     def failed(self, message):
+        self.failures += 1
         self.note(message, traceback=traceback.format_exc())
 
     def operation(self, verdict):

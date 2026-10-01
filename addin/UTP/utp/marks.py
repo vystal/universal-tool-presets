@@ -172,17 +172,38 @@ def strip(owner):
     now = _icon(owner)
     if now is not None and now != config.ICON_DEFAULT:
         changes["icon"] = {"from": now, "to": config.ICON_DEFAULT}
-    held = []
-    for key in (config.KEY_ADOPTED_PRESET, config.KEY_OPERATION_ID,
-                config.KEY_SCHEMA):
-        try:
-            if owner.attributes.itemByName(config.ATTRIBUTE_GROUP, key):
-                held.append(key)
-        except Exception:
-            continue
+    held = _group_keys(owner)
     if held:
         changes["record"] = {"remove": held}
     return changes
+
+
+def _group_keys(owner):
+    """Every attribute this add-in has in its group, whatever it is called.
+
+    Asked of the document rather than assumed from a list of keys: a file
+    written by a newer version may carry attributes this one has never heard
+    of, and a removal that left those behind while reporting success would be
+    worse than refusing. Falls back to the keys this version knows if the
+    group cannot be enumerated.
+    """
+    try:
+        found = owner.attributes.itemsByGroup(config.ATTRIBUTE_GROUP)
+        names = [found.item(i).name for i in range(found.count)]
+        if names:
+            return names
+    except Exception:
+        pass
+    known = []
+    for key in (config.KEY_ADOPTED_PRESET, config.KEY_OPERATION_ID,
+                config.KEY_SCHEMA, config.KEY_SOURCE_PRESET,
+                config.KEY_VERSION, config.KEY_VALUES):
+        try:
+            if owner.attributes.itemByName(config.ATTRIBUTE_GROUP, key):
+                known.append(key)
+        except Exception:
+            continue
+    return known
 
 
 def unapply(owner, changes):

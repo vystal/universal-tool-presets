@@ -48,7 +48,25 @@ def _document_tool(cam, tool_id):
     return None
 
 
-def _review_versions(cam, operations, tools, report, writing):
+def _verdicts(operations, tools, report):
+    """Every operation's verdict, worked out once.
+
+    It used to be worked out four times a pass, by the version review, the
+    preset step, the marking loop and the setup rollup. At about ten
+    milliseconds each that is forty per operation, so a two hundred
+    operation job spent eight seconds doing the same arithmetic four times.
+    """
+    found = []
+    for operation in operations:
+        try:
+            found.append((operation, state.reconcile(operation, tools)))
+        except Exception:
+            report.failed("could not work out %s"
+                          % getattr(operation, "name", "an operation"))
+    return found
+
+
+def _review_versions(cam, decided, tools, report, writing):
     """Bring version numbers up to date, for the UTPs this document uses.
 
     Returns the libraries to carry on with: after a bump they have to be read
@@ -59,8 +77,7 @@ def _review_versions(cam, operations, tools, report, writing):
     still works; its notes just carry no numbers.
     """
     wanted = {}
-    for operation in operations:
-        verdict = state.reconcile(operation, tools)
+    for operation, verdict in decided:
         found = verdict.get("libraryPresetId")
         if not found:
             continue
@@ -121,6 +138,15 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing):
         spare = presets.removable(tool, library_tool, used_ids)
         if not spare:
             continue
+        if report.failures:
+            # Nothing is deleted after a pass that went wrong. The operation
+            # walk is defensive, so a collection that threw leaves an
+            # operation invisible rather than raising, and an invisible
+            # operation's preset is one nothing is protecting.
+            report.note("not tidying: something went wrong in this pass",
+                        failures=report.failures,
+                        would_have_removed=[n for _i, n, _v in spare])
+            continue
         allowed = writing and config.MAY_TIDY_PRESETS
         if not allowed:
             report.note("would remove copies nothing uses any more",
@@ -141,7 +167,7 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing):
     return wrote
 
 
-def _ensure_presets(cam, operations, tools, report, writing):
+def _ensure_presets(cam, decided, tools, report, writing):
     """Make the newer values pickable for every behind operation.
 
     Returns True if anything was written, since the caller must then re-read
@@ -156,8 +182,7 @@ def _ensure_presets(cam, operations, tools, report, writing):
     # operation points at must never go.
     used_ids = set()
     in_use = {}
-    for operation in operations:
-        verdict = state.reconcile(operation, tools)
+    for operation, verdict in decided:
         if verdict.get("presetId"):
             used_ids.add(verdict["presetId"])
         tool = getattr(operation, "tool", None)
@@ -213,17 +238,23 @@ def _ensure_presets(cam, operations, tools, report, writing):
     return wrote
 
 
-def _mark_setups(cam, tools, report, writing):
+def _mark_setups(cam, tools, report, writing, decided=None):
     """A signpost on each setup, because a collapsed one hides everything.
 
     Done after the operations, so it describes what they have just become
     rather than what they were.
     """
+    known = {}
+    for operation, verdict in (decided or []):
+        if verdict.get("operationId"):
+            known[verdict["operationId"]] = verdict
     for setup, operations in by_setup(cam):
         counts = {}
         for operation in operations:
             try:
-                verdict = state.reconcile(operation, tools)
+                verdict = known.get(str(operation.operationId))
+                if verdict is None:
+                    verdict = state.reconcile(operation, tools)
             except Exception:
                 continue
             counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
@@ -454,21 +485,24 @@ def run(app):
         report.note("found operations", count=len(operations),
                     writing="yes" if writing else "no", **_shape(cam))
 
+        decided = _verdicts(operations, tools, report)
+
         # Versions before anything reads them, so a note can name one. The
         # refreshed libraries are taken back, because a bump changes what
         # every later step should be reading.
-        tools = _review_versions(cam, operations, tools, report, writing)
+        tools = _review_versions(cam, decided, tools, report, writing)
 
         # Presets first, notes second. A behind operation's note is worth
         # little until the newer values are pickable in its dropdown, and
         # update() leaves the tool and preset references stale, so the
-        # operations are re-read afterwards rather than reused.
-        if _ensure_presets(cam, operations, tools, report, writing):
+        # operations are re-read and judged again afterwards rather than
+        # reused.
+        if _ensure_presets(cam, decided, tools, report, writing):
             operations = _operations(cam)
+            decided = _verdicts(operations, tools, report)
 
-        for index, operation in enumerate(operations):
+        for index, (operation, verdict) in enumerate(decided):
             try:
-                verdict = state.reconcile(operation, tools)
                 # Worked out whether or not it is allowed to happen, so the
                 # decisions can be read and argued with either way.
                 verdict["would"] = marks.plan(operation, verdict)
@@ -488,7 +522,7 @@ def run(app):
             if index % config.OPERATIONS_PER_CHUNK == 0:
                 adsk.doEvents()
 
-        _mark_setups(cam, tools, report, writing)
+        _mark_setups(cam, tools, report, writing, decided)
 
         counts = dict(report.counts)
         path = report.close()
