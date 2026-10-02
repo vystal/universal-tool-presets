@@ -696,12 +696,20 @@ def run(app):
             clock.at("judged them all again, after the presets moved")
 
         progress.saying(config.PROGRESS_MARKING)
+        # Timed from the inside. Seventeen milliseconds an operation for what
+        # should be two property reads does not add up, and guessing which
+        # part of it is wrong has been wrong three times.
+        spent = {"deciding what to mark": 0.0, "writing marks": 0.0,
+                 "recording the verdict": 0.0}
         for index, (operation, verdict) in enumerate(decided):
             try:
                 # Worked out whether or not it is allowed to happen, so the
                 # decisions can be read and argued with either way.
+                mark = time.time()
                 verdict["would"] = marks.plan(operation, verdict)
+                spent["deciding what to mark"] += time.time() - mark
                 if writing and verdict["would"]:
+                    mark = time.time()
                     try:
                         verdict["written"] = marks.apply(operation,
                                                          verdict["would"])
@@ -710,7 +718,10 @@ def run(app):
                         verdict["written"] = "failed"
                         report.failed("could not write to %s"
                                       % verdict["operation"])
+                    spent["writing marks"] += time.time() - mark
+                mark = time.time()
                 report.operation(verdict)
+                spent["recording the verdict"] += time.time() - mark
             except Exception:
                 report.failed("could not work out %s" % getattr(
                     operation, "name", "an operation"))
@@ -720,6 +731,8 @@ def run(app):
                     break
 
         clock.at("notes and icons")
+        report.note("of which, seconds",
+                    **{k: round(v, 2) for k, v in spent.items()})
         progress.done()
         _mark_setups(cam, tools, report, writing, decided)
         clock.at("setup notes")
