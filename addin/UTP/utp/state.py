@@ -19,7 +19,7 @@ RETIRED = "preset not in the library"
 UNKNOWN = "unknown"
 
 
-def reconcile(operation, library_tools, seen=None):
+def reconcile(operation, library_tools, seen=None, tool_id=None):
     """What the add-in would say about one operation.
 
     `seen` is an optional dict for one pass to share preset readings in.
@@ -33,6 +33,7 @@ def reconcile(operation, library_tools, seen=None):
         "preset": None,
         "presetId": None,
         "matched by": None,
+        "toolId": None,
         "matched preset by": None,
         "libraryPresetId": None,
         "libraryVersion": None,
@@ -51,8 +52,10 @@ def reconcile(operation, library_tools, seen=None):
         return verdict
     verdict["tool"] = getattr(tool, "description", "?")
 
-    library_tool, how = identity.match(tool, library_tools)
+    library_tool, how, found = identity.match(tool, library_tools, tool_id)
     verdict["matched by"] = how
+    # Kept so nothing has to serialise the tool again to learn its id.
+    verdict["toolId"] = found
     if library_tool is None:
         verdict["state"] = NOT_UTP
         verdict["why"] = "its tool is not in any Hub library: %s" % how

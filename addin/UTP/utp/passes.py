@@ -94,6 +94,32 @@ def _document_tools(cam):
     return found
 
 
+def _id_by_description(shelf):
+    """A cheap route to a tool's id, for the descriptions that allow one.
+
+    The shelf map already knows every tool's id, and a description is free to
+    read where an id costs a toJson() of the whole tool. Descriptions do
+    collide, measured at four tools sharing one, so only descriptions held by
+    exactly one tool are offered and everything else falls back to working
+    the id out properly.
+    """
+    seen = {}
+    for key, tool in shelf.items():
+        try:
+            name = (tool.description or "").strip()
+        except Exception:
+            continue
+        seen.setdefault(name, []).append(key)
+    unique = {name: ids[0] for name, ids in seen.items() if len(ids) == 1}
+
+    def resolve(tool):
+        try:
+            return unique.get((tool.description or "").strip())
+        except Exception:
+            return None
+    return resolve
+
+
 def _document_tool(cam, tool_id, shelf=None):
     """A tool in the document by id, from a map built once if given one.
 
@@ -157,7 +183,7 @@ class _Progress:
                                   "takes it back")
 
 
-def _verdicts(operations, tools, report, progress=None):
+def _verdicts(operations, tools, report, progress=None, resolve=None):
     """Every operation's verdict, worked out once.
 
     It used to be worked out four times a pass, by the version review, the
@@ -169,7 +195,14 @@ def _verdicts(operations, tools, report, progress=None):
     seen = {}
     for index, operation in enumerate(operations):
         try:
-            found.append((operation, state.reconcile(operation, tools, seen)))
+            known = None
+            if resolve is not None:
+                try:
+                    known = resolve(operation.tool)
+                except Exception:
+                    known = None
+            found.append((operation,
+                          state.reconcile(operation, tools, seen, known)))
         except Exception:
             report.failed("could not work out %s"
                           % getattr(operation, "name", "an operation"))
@@ -199,8 +232,7 @@ def _review_versions(cam, decided, tools, report, writing):
         found = verdict.get("libraryPresetId")
         if not found:
             continue
-        tool = getattr(operation, "tool", None)
-        library_tool = tools.get(library.tool_id(tool)) if tool else None
+        library_tool = tools.get(verdict.get("toolId"))
         if library_tool is None:
             continue
         preset = library_tool.presets.get(found)
@@ -307,10 +339,10 @@ def _ensure_presets(cam, decided, tools, report, writing):
     for operation, verdict in decided:
         if verdict.get("presetId"):
             used_ids.add(verdict["presetId"])
-        tool = getattr(operation, "tool", None)
-        library_tool = tools.get(library.tool_id(tool)) if tool else None
+        found = verdict.get("toolId")
+        library_tool = tools.get(found) if found else None
         if library_tool is not None:
-            in_use[library.tool_id(tool)] = library_tool
+            in_use[found] = library_tool
         if verdict["state"] != state.BEHIND:
             continue
         if library_tool is None:
@@ -324,8 +356,7 @@ def _ensure_presets(cam, decided, tools, report, writing):
             continue
         # Tools are remembered by id, not by reference: the first update()
         # below invalidates every tool object gathered here.
-        wanted.setdefault(library_preset.id,
-                          (library.tool_id(tool), library_preset))
+        wanted.setdefault(library_preset.id, (found, library_preset))
 
     wrote = _sync_and_tidy(cam, in_use, used_ids, report, writing)
 
@@ -623,8 +654,11 @@ def run(app):
 
         clock.at("walked the document")
 
+        resolve = _id_by_description(_document_tools(cam))
+        clock.at("read the document's tools")
+
         progress = _Progress(app, len(operations), report)
-        decided = _verdicts(operations, tools, report, progress)
+        decided = _verdicts(operations, tools, report, progress, resolve)
         clock.at("worked out every verdict")
 
         # Versions before anything reads them, so a note can name one. The
@@ -640,7 +674,8 @@ def run(app):
         # reused.
         if _ensure_presets(cam, decided, tools, report, writing):
             operations = _operations(cam)
-            decided = _verdicts(operations, tools, report, progress)
+            decided = _verdicts(operations, tools, report, progress,
+                                _id_by_description(_document_tools(cam)))
 
         for index, (operation, verdict) in enumerate(decided):
             try:

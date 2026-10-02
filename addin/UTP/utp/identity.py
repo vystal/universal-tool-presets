@@ -12,11 +12,17 @@ separately and never quietly treated as a success.
 from . import library
 
 
-def match(tool, library_tools):
-    """Returns (LibraryTool or None, how it was found)."""
-    found = library.tool_id(tool)
+def match(tool, library_tools, tool_id=None):
+    """Returns (LibraryTool or None, how it was found, the tool's own id).
+
+    The id is handed back because working it out costs a toJson() of the
+    whole tool, and it was being worked out again by everything that wanted
+    it: measured at 780 serialisations on a 390 operation file, for 390
+    answers.
+    """
+    found = tool_id or library.tool_id(tool)
     if found and found in library_tools:
-        return library_tools[found], "id"
+        return library_tools[found], "id", found
 
     # Descriptions collide: four tools in one test document shared one. So a
     # description match is only reported when it is unambiguous, and even
@@ -26,7 +32,9 @@ def match(tool, library_tools):
         hits = [t for t in library_tools.values()
                 if (t.description or "").strip() == description]
         if len(hits) == 1:
-            return hits[0], "description"
+            return hits[0], "description", found
         if len(hits) > 1:
-            return None, "description is ambiguous (%d tools share it)" % len(hits)
-    return None, "no match"
+            return (None,
+                    "description is ambiguous (%d tools share it)" % len(hits),
+                    found)
+    return None, "no match", found
