@@ -9,9 +9,10 @@ Everything else in a note is somebody's own text and is kept exactly, line
 breaks and all.
 """
 
+import json
 import time
 
-from . import compat, config, state
+from . import config, state
 
 
 def _named(verdict, version):
@@ -108,7 +109,10 @@ def record(verdict):
         return None
     if not verdict.get("presetId"):
         return None
-    return {config.KEY_ADOPTED_PRESET: verdict["presetId"],
+    # The schema rides inside the record, so one write says both what the
+    # operation was set from and which rules wrote it.
+    return {"s": config.SCHEMA,
+            config.KEY_ADOPTED_PRESET: verdict["presetId"],
             config.KEY_OPERATION_ID: verdict["operationId"]}
 
 
@@ -197,9 +201,10 @@ def _group_keys(owner):
     except Exception:
         pass
     known = []
-    for key in (config.KEY_ADOPTED_PRESET, config.KEY_OPERATION_ID,
-                config.KEY_SCHEMA, config.KEY_SOURCE_PRESET,
-                config.KEY_VERSION, config.KEY_VALUES):
+    for key in (config.KEY_RECORD, config.KEY_ADOPTED_PRESET,
+                config.KEY_OPERATION_ID, config.KEY_SCHEMA,
+                config.KEY_SOURCE_PRESET, config.KEY_VERSION,
+                config.KEY_VALUES):
         try:
             if owner.attributes.itemByName(config.ATTRIBUTE_GROUP, key):
                 known.append(key)
@@ -276,10 +281,8 @@ def _apply(operation, changes):
             done.append("icon")
     if "record" in changes:
         mark = time.time()
-        for key in sorted(changes["record"]):
-            operation.attributes.add(config.ATTRIBUTE_GROUP, key,
-                                     str(changes["record"][key]))
-        compat.stamp(operation)
+        operation.attributes.add(config.ATTRIBUTE_GROUP, config.KEY_RECORD,
+                                 json.dumps(changes["record"]))
         cost["record"] += time.time() - mark
         done.append("record")
     return done

@@ -16,15 +16,24 @@ So everything written carries the schema it was written against, and the rule
 is simple: an add-in that meets data newer than it understands stops writing
 and says so. It never guesses, because guessing is what does the damage.
 
-Migrating older data forward belongs here too. There is nothing to migrate
-yet, schema 1 being the first, but the place for it is decided.
+Reading older data belongs here too. Schema 1 wrote an operation's record as
+three separate attributes; schema 2 writes one, because every write to a CAM
+operation costs about 120 milliseconds. Both shapes are read, and an
+operation is rewritten to the newer one the next time it is marked, so files
+convert as they are worked on rather than in a migration nobody asked for.
 """
+
+import json
 
 from . import config
 
 
 def stamp(owner):
-    """Record which schema wrote this. Called wherever the add-in writes."""
+    """Record which schema wrote this, where it is not already in a record.
+
+    An operation's record carries its own schema, so this is only for things
+    that have no record of their own, like a preset the add-in creates.
+    """
     try:
         owner.attributes.add(config.ATTRIBUTE_GROUP, config.KEY_SCHEMA,
                              str(config.SCHEMA))
@@ -34,7 +43,23 @@ def stamp(owner):
 
 
 def schema_of(owner):
-    """The schema something was written against, or None if nothing was."""
+    """The schema something was written against, or None if nothing was.
+
+    From inside the record where there is one, and from the separate
+    attribute schema 1 wrote otherwise. Unreadable either way is treated as
+    newer rather than absent: something wrote a value this version cannot
+    make sense of, and guessing is what does the damage.
+    """
+    try:
+        record = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
+                                             config.KEY_RECORD)
+    except Exception:
+        record = None
+    if record is not None:
+        try:
+            return int(json.loads(record.value).get("s", config.SCHEMA))
+        except Exception:
+            return config.SCHEMA + 1
     try:
         found = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
                                             config.KEY_SCHEMA)
@@ -45,8 +70,6 @@ def schema_of(owner):
     try:
         return int(found.value)
     except Exception:
-        # Unreadable is treated as newer, not as absent: something wrote a
-        # value this version cannot make sense of.
         return config.SCHEMA + 1
 
 

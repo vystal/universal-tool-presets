@@ -31,6 +31,12 @@ ATTRIBUTE_GROUP = "UTP"
 # document preset keeps its library preset's id, so identity needs nothing
 # stored. utpId, sourceTool and a per-document version were all dropped once
 # that was known.
+# One attribute holding the whole record, because every write to a CAM
+# operation costs about 120 milliseconds whatever it is: measured, 49 writes
+# took 5.9 seconds. Three attributes were three writes where one does.
+KEY_RECORD = "record"
+
+# Schema 1 wrote these three separately. Still read, never written.
 KEY_ADOPTED_PRESET = "adoptedPreset"
 KEY_OPERATION_ID = "operationId"
 
@@ -44,7 +50,11 @@ KEY_SOURCE_PRESET = "sourcePreset"
 # of an attribute. An add-in that meets a higher number than this stops
 # writing rather than fighting a version whose rules it does not have.
 KEY_SCHEMA = "schema"
-SCHEMA = 1
+
+# 2: the record became one attribute instead of three. Schema 1 files are
+# still read, and rewritten to the new shape when an operation is next
+# marked.
+SCHEMA = 2
 
 # On a library preset. A label, never a decision: what is behind and what is
 # current is settled by comparing values, with or without these.

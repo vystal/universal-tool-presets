@@ -8,6 +8,8 @@ is carried between sessions, so a crash cannot leave the add-in believing
 something the file does not say.
 """
 
+import json
+
 from . import config, identity, presets, values
 
 NOT_UTP = "not a UTP tool"
@@ -162,20 +164,45 @@ def _record(operation, preset_id):
     describes this operation either. Both are ignored rather than trusted,
     which is what makes an interrupted or crashed run harmless.
     """
-    try:
-        group = config.ATTRIBUTE_GROUP
-        adopted = operation.attributes.itemByName(
-            group, config.KEY_ADOPTED_PRESET)
-        if adopted is None:
-            return None
-        owner = operation.attributes.itemByName(group, config.KEY_OPERATION_ID)
-        if owner is not None and owner.value != _id(operation):
-            return None
-        if preset_id and adopted.value != preset_id:
-            return None
-        return adopted.value
-    except Exception:
+    held = _held(operation)
+    if not held:
         return None
+    adopted = held.get(config.KEY_ADOPTED_PRESET)
+    if not adopted:
+        return None
+    owner = held.get(config.KEY_OPERATION_ID)
+    if owner is not None and str(owner) != _id(operation):
+        return None
+    if preset_id and adopted != preset_id:
+        return None
+    return adopted
+
+
+def _held(operation):
+    """The record, from whichever shape wrote it.
+
+    Schema 2 keeps the whole thing in one attribute, because every write to
+    a CAM operation costs about 120 milliseconds and three attributes were
+    three of them. Schema 1 wrote them separately and those files are still
+    read; an operation is rewritten to the new shape the next time it is
+    marked.
+    """
+    group = config.ATTRIBUTE_GROUP
+    try:
+        record = operation.attributes.itemByName(group, config.KEY_RECORD)
+        if record is not None:
+            return json.loads(record.value)
+    except Exception:
+        return {}
+    held = {}
+    for key in (config.KEY_ADOPTED_PRESET, config.KEY_OPERATION_ID):
+        try:
+            found = operation.attributes.itemByName(group, key)
+        except Exception:
+            continue
+        if found is not None:
+            held[key] = found.value
+    return held
 
 
 def _sample(changed, count=3):
