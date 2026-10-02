@@ -638,6 +638,7 @@ def run(app):
         # Pressing the button is also what warms the cache the edit handler
         # needs, so it always re-reads rather than trusting an old read.
         clock = _Clock(report)
+        marks.forget_cost()
         shelf = _document_tools(cam)
         resolve = _id_by_description(shelf)
         clock.at("read the document's tools")
@@ -733,6 +734,8 @@ def run(app):
         clock.at("notes and icons")
         report.note("of which, seconds",
                     **{k: round(v, 2) for k, v in spent.items()})
+        report.note("and of the writing, seconds",
+                    **{k: round(v, 2) for k, v in marks.cost.items()})
         progress.done()
         _mark_setups(cam, tools, report, writing, decided)
         clock.at("setup notes")

@@ -9,6 +9,8 @@ Everything else in a note is somebody's own text and is kept exactly, line
 breaks and all.
 """
 
+import time
+
 from . import compat, config, state
 
 
@@ -245,22 +247,40 @@ def apply(operation, changes):
         _writing["depth"] -= 1
 
 
+# What each kind of write costs, summed over a pass. Writing marks turned out
+# to be 6 seconds for eleven operations where reading them was free, and that
+# is the cost that grows with how much there is to do: a file needing two
+# hundred marks would spend minutes here.
+cost = {"note": 0.0, "icon": 0.0, "record": 0.0}
+
+
+def forget_cost():
+    for key in cost:
+        cost[key] = 0.0
+
+
 def _apply(operation, changes):
     done = []
     if "note" in changes:
+        mark = time.time()
         operation.notes = changes["note"]["to"]
+        cost["note"] += time.time() - mark
         done.append("note")
     if "icon" in changes:
         import adsk.cam
         value = getattr(adsk.cam.NoteIconColors, changes["icon"]["to"], None)
         if value is not None:
+            mark = time.time()
             operation.noteIconColor = value
+            cost["icon"] += time.time() - mark
             done.append("icon")
     if "record" in changes:
+        mark = time.time()
         for key in sorted(changes["record"]):
             operation.attributes.add(config.ATTRIBUTE_GROUP, key,
                                      str(changes["record"][key]))
         compat.stamp(operation)
+        cost["record"] += time.time() - mark
         done.append("record")
     return done
 
