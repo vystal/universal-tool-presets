@@ -157,6 +157,14 @@ class _Progress:
         except Exception:
             self.dialog = None
 
+    def saying(self, message):
+        """Change what the bar says, for a later stage of the same pass."""
+        if self.dialog is not None:
+            try:
+                self.dialog.message = message
+            except Exception:
+                pass
+
     def at(self, done):
         """Move it along. True means somebody pressed cancel."""
         if self.dialog is None:
@@ -672,12 +680,18 @@ def run(app):
         # update() leaves the tool and preset references stale, so the
         # operations are re-read and judged again afterwards rather than
         # reused.
-        if _ensure_presets(cam, decided, tools, report, writing):
+        changed_presets = _ensure_presets(cam, decided, tools, report, writing)
+        clock.at("presets in the document")
+        if changed_presets:
             operations = _operations(cam)
             decided = _verdicts(operations, tools, report, progress,
                                 _id_by_description(_document_tools(cam)))
+            clock.at("judged them all again, after the presets moved")
 
+        progress.saying(config.PROGRESS_MARKING)
         for index, (operation, verdict) in enumerate(decided):
+            if progress.at(index + 1):
+                break
             try:
                 # Worked out whether or not it is allowed to happen, so the
                 # decisions can be read and argued with either way.
@@ -698,7 +712,7 @@ def run(app):
             if index % config.OPERATIONS_PER_CHUNK == 0:
                 adsk.doEvents()
 
-        clock.at("presets, notes and icons")
+        clock.at("notes and icons")
         progress.done()
         _mark_setups(cam, tools, report, writing, decided)
         clock.at("setup notes")

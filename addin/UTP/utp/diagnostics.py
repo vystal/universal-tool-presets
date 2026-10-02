@@ -43,6 +43,7 @@ class Report:
         # leaves an operation invisible rather than raising, and an invisible
         # operation's preset is one nothing is protecting.
         self.failures = 0
+        self.pending = 0
         try:
             os.makedirs(self.dir, exist_ok=True)
             self.stream = open(self.base + ".jsonl", "a", encoding="utf-8")
@@ -52,14 +53,24 @@ class Report:
 
     # -- writing --------------------------------------------------------
 
-    def _emit(self, kind, payload):
+    def _emit(self, kind, payload, urgent=True):
+        """Write one line. Flushed at once unless it can afford to wait.
+
+        A verdict per operation means four hundred flushes to disk on a big
+        file, so those are allowed to queue a little. Anything explaining a
+        failure still goes straight out, because that is exactly the line
+        somebody wants after a crash.
+        """
         entry = {"at": datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3],
                  "kind": kind}
         entry.update(payload)
         if self.stream is not None:
             try:
                 self.stream.write(json.dumps(entry, default=str) + "\n")
-                self.stream.flush()
+                self.pending += 1
+                if urgent or self.pending >= 20:
+                    self.stream.flush()
+                    self.pending = 0
             except Exception:
                 pass
         return entry
@@ -76,7 +87,7 @@ class Report:
         """One operation's verdict, as state.reconcile returned it."""
         self.operations.append(verdict)
         self.counts[verdict["state"]] = self.counts.get(verdict["state"], 0) + 1
-        self._emit("operation", verdict)
+        self._emit("operation", verdict, urgent=False)
 
     # -- finishing ------------------------------------------------------
 
@@ -84,6 +95,10 @@ class Report:
         seconds = (datetime.datetime.now() - self.started).total_seconds()
         self._emit("finished", {"seconds": round(seconds, 2),
                                 "counts": self.counts})
+        try:
+            self.stream.flush()
+        except Exception:
+            pass
         if self.stream is not None:
             try:
                 self.stream.close()
