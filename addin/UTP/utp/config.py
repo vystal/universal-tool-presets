@@ -121,13 +121,16 @@ OPERATIONS_PER_CHUNK = 20
 
 # Show a progress bar while the button's pass runs, with a cancel button.
 #
-# Fusion's only on-screen progress is a dialog, and a dialog blocks working
-# in Fusion while it is up. That was first taken as a reason to leave this
-# off, which was wrong: the pass runs on Fusion's main thread because the API
-# cannot be used off it, so Fusion is taken over for the duration either way.
-# The dialog does not add the blocking, it explains it, and it offers a way
-# to stop. A frozen window with no explanation is the worse of the two.
-SHOW_PROGRESS = True
+# Off, because Fusion has no out-of-the-way way to show progress: a dialog
+# sits on top of everything and takes focus, and a palette is a panel
+# appearing uninvited. "It blocks either way" was used to argue for the
+# dialog and it does not hold up: blocking you can see is still in the way.
+#
+# So the answer is a pass quick enough not to need one. Progress goes to the
+# session log every twenty operations meanwhile, which gets in nobody's way
+# but has to be looked at. Turn this on for a bar with a cancel button when
+# a particular file is worth waiting on.
+SHOW_PROGRESS = False
 
 # Below this many operations a pass is quick enough that a progress bar is
 # only a flicker, so it is not shown even when the switch is on.

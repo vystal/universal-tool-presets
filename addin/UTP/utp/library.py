@@ -127,7 +127,7 @@ def warm():
     return _cache["tools"] is not None
 
 
-def cached(report, do_events=None, force=False):
+def cached(report, do_events=None, force=False, wanted=None):
     """The libraries, read once per session.
 
     An operation edit must not pay for a Hub read: it took 6.7 seconds the
@@ -136,7 +136,7 @@ def cached(report, do_events=None, force=False):
     and says so when it is not.
     """
     if force or _cache["tools"] is None:
-        tools, ok = read(report, do_events)
+        tools, ok = read(report, do_events, wanted)
         _cache["tools"], _cache["ok"] = tools, ok
     return _cache["tools"], _cache["ok"]
 
@@ -145,7 +145,7 @@ def forget():
     _cache["tools"], _cache["ok"] = None, False
 
 
-def read(report, do_events=None):
+def read(report, do_events=None, wanted=None):
     """Every tool in every Hub library, keyed by tool id.
 
     Returns (tools, ok). ok is False when the library could not be reached,
@@ -165,6 +165,11 @@ def read(report, do_events=None):
 
     assets = _walk(libraries, url)
     read_count = preset_count = unreadable = 0
+    # The tools this document actually uses, if the caller knows them. Each
+    # library is a request over the network, measured between three and eight
+    # seconds for all eight of them, and a document using two of them has no
+    # reason to wait for the other six.
+    looking_for = set(wanted) if wanted else None
     for path, asset_url in assets:
         try:
             library = libraries.toolLibraryAtURL(asset_url)
@@ -186,6 +191,12 @@ def read(report, do_events=None):
                 unreadable += tool.unreadable
             if do_events is not None and index % config.OPERATIONS_PER_CHUNK == 0:
                 do_events()
+
+        if looking_for and looking_for.issubset(tools):
+            report.note("stopped early: every tool this document uses was "
+                        "found", libraries_read=read_count,
+                        of=len(assets))
+            break
 
     report.note("read the Hub libraries",
                 libraries=read_count, tools=len(tools), presets=preset_count)

@@ -220,7 +220,12 @@ def _verdicts(operations, tools, report, progress=None, resolve=None):
             diagnostics.session_log("working", done=index,
                                     of=len(operations))
             adsk.doEvents()
-        if progress is not None and progress.at(index + 1):
+            # Moved here rather than on every operation: setting the value
+            # repaints the dialog, and doing that four hundred times cost
+            # more than the work it was reporting on.
+            if progress is not None and progress.at(index + 1):
+                break
+        elif progress is not None and progress.at(index + 1):
             break
     return found
 
@@ -633,7 +638,12 @@ def run(app):
         # Pressing the button is also what warms the cache the edit handler
         # needs, so it always re-reads rather than trusting an old read.
         clock = _Clock(report)
-        tools, ok = library.cached(report, adsk.doEvents, force=True)
+        shelf = _document_tools(cam)
+        resolve = _id_by_description(shelf)
+        clock.at("read the document's tools")
+
+        tools, ok = library.cached(report, adsk.doEvents, force=True,
+                                   wanted=set(shelf))
         clock.at("read the Hub libraries")
         if not ok:
             report.note("stopping: without the library nothing can be decided")
@@ -662,9 +672,6 @@ def run(app):
 
         clock.at("walked the document")
 
-        resolve = _id_by_description(_document_tools(cam))
-        clock.at("read the document's tools")
-
         progress = _Progress(app, len(operations), report)
         decided = _verdicts(operations, tools, report, progress, resolve)
         clock.at("worked out every verdict")
@@ -690,8 +697,6 @@ def run(app):
 
         progress.saying(config.PROGRESS_MARKING)
         for index, (operation, verdict) in enumerate(decided):
-            if progress.at(index + 1):
-                break
             try:
                 # Worked out whether or not it is allowed to happen, so the
                 # decisions can be read and argued with either way.
@@ -709,8 +714,10 @@ def run(app):
             except Exception:
                 report.failed("could not work out %s" % getattr(
                     operation, "name", "an operation"))
-            if index % config.OPERATIONS_PER_CHUNK == 0:
+            if index and index % config.OPERATIONS_PER_CHUNK == 0:
                 adsk.doEvents()
+                if progress.at(index + 1):
+                    break
 
         clock.at("notes and icons")
         progress.done()
