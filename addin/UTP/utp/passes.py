@@ -48,7 +48,59 @@ def _document_tool(cam, tool_id):
     return None
 
 
-def _verdicts(operations, tools, report):
+class _Progress:
+    """A progress bar, or nothing at all.
+
+    Fusion's only on-screen progress is a dialog, and a dialog blocks working
+    in Fusion while it is up, so this is off unless somebody asks for it. The
+    session log gets a line every chunk either way, which is an indicator
+    that gets in nobody's way but has to be looked at to be seen.
+
+    Shown only for a document big enough to wait for: on a handful of
+    operations a bar is a flicker.
+    """
+
+    def __init__(self, app, total, report):
+        self.dialog = None
+        self.cancelled = False
+        self.report = report
+        if not config.SHOW_PROGRESS or total < config.PROGRESS_FROM:
+            return
+        try:
+            self.dialog = app.userInterface.createProgressDialog()
+            self.dialog.isCancelButtonShown = True
+            self.dialog.show(config.DIALOG_TITLE, config.PROGRESS_MESSAGE,
+                             0, total)
+        except Exception:
+            self.dialog = None
+
+    def at(self, done):
+        """Move it along. True means somebody pressed cancel."""
+        if self.dialog is None:
+            return False
+        try:
+            if self.dialog.wasCancelled:
+                self.cancelled = True
+                return True
+            self.dialog.progressValue = done
+        except Exception:
+            self.dialog = None
+        return False
+
+    def done(self):
+        if self.dialog is not None:
+            try:
+                self.dialog.hideDialog()
+            except Exception:
+                pass
+            self.dialog = None
+        if self.cancelled:
+            self.report.note("STOPPED: somebody pressed cancel",
+                             note="whatever was written stays, and one undo "
+                                  "takes it back")
+
+
+def _verdicts(operations, tools, report, progress=None):
     """Every operation's verdict, worked out once.
 
     It used to be worked out four times a pass, by the version review, the
@@ -57,12 +109,21 @@ def _verdicts(operations, tools, report):
     operation job spent eight seconds doing the same arithmetic four times.
     """
     found = []
-    for operation in operations:
+    seen = {}
+    for index, operation in enumerate(operations):
         try:
-            found.append((operation, state.reconcile(operation, tools)))
+            found.append((operation, state.reconcile(operation, tools, seen)))
         except Exception:
             report.failed("could not work out %s"
                           % getattr(operation, "name", "an operation"))
+        # A breath, and a line in the session log, so a long pass can be
+        # watched rather than guessed at.
+        if index and index % config.OPERATIONS_PER_CHUNK == 0:
+            diagnostics.session_log("working", done=index,
+                                    of=len(operations))
+            adsk.doEvents()
+        if progress is not None and progress.at(index + 1):
+            break
     return found
 
 
@@ -428,10 +489,14 @@ def _within(owner, seen=None):
     return found
 
 
-def _shape(cam):
-    """What the tree actually looks like, for the report to state."""
+def _walk(cam):
+    """Every operation, and what the tree it came from looks like.
+
+    One traversal. Counting the shape used to be a second walk of the whole
+    document for no reason but to describe it.
+    """
     seen = {"folders": 0, "patterns": 0, "deepest": 0, "loose": 0}
-    total = 0
+    found = []
     try:
         for index in range(cam.setups.count):
             setup = cam.setups.item(index)
@@ -439,14 +504,15 @@ def _shape(cam):
                 seen["loose"] += setup.operations.count
             except Exception:
                 pass
-            total += len(_within(setup, seen))
+            found.extend(_within(setup, seen))
     except Exception:
         pass
-    seen["operations found"] = total
-    seen["directly under a setup"] = seen.pop("loose")
-    seen["inside a folder or pattern"] = total - seen["directly under a setup"]
-    seen.pop("deepest", None)
-    return seen
+    shape = {"operations found": len(found),
+             "folders": seen["folders"],
+             "patterns": seen["patterns"],
+             "directly under a setup": seen["loose"],
+             "inside a folder or pattern": len(found) - seen["loose"]}
+    return found, shape
 
 
 def run(app):
@@ -468,10 +534,14 @@ def run(app):
             return (report.close(), {},
                     config.NO_LIBRARY)
 
+        # Walked once. The schema survey and the shape of the tree used to
+        # traverse the whole document again each, for nothing but to read it.
+        operations, shape = _walk(cam)
+
         writing = config.MAY_WRITE_ON_DEMAND and _writable(document, report)
         # A file written by a newer add-in is read and reported on, never
         # changed: its rules are not this version's to second-guess.
-        newest = compat.survey(_operations(cam))
+        newest = compat.survey(operations)
         understood, refusal = compat.may_write(newest)
         if not understood:
             report.note("NOT WRITING", reason=refusal)
@@ -481,11 +551,11 @@ def run(app):
             # what lets later edits and saves write to it.
             from . import events
             events.joined(document)
-        operations = _operations(cam)
         report.note("found operations", count=len(operations),
-                    writing="yes" if writing else "no", **_shape(cam))
+                    writing="yes" if writing else "no", **shape)
 
-        decided = _verdicts(operations, tools, report)
+        progress = _Progress(app, len(operations), report)
+        decided = _verdicts(operations, tools, report, progress)
 
         # Versions before anything reads them, so a note can name one. The
         # refreshed libraries are taken back, because a bump changes what
@@ -499,7 +569,7 @@ def run(app):
         # reused.
         if _ensure_presets(cam, decided, tools, report, writing):
             operations = _operations(cam)
-            decided = _verdicts(operations, tools, report)
+            decided = _verdicts(operations, tools, report, progress)
 
         for index, (operation, verdict) in enumerate(decided):
             try:
@@ -522,6 +592,7 @@ def run(app):
             if index % config.OPERATIONS_PER_CHUNK == 0:
                 adsk.doEvents()
 
+        progress.done()
         _mark_setups(cam, tools, report, writing, decided)
 
         counts = dict(report.counts)

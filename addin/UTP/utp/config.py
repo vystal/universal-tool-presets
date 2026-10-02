@@ -119,6 +119,17 @@ COMPARABLE_TYPES = (int, float, str, bool)
 # pass gives it a breath every this many operations.
 OPERATIONS_PER_CHUNK = 20
 
+# Show a progress bar while the button's pass runs, with a cancel button.
+# Fusion's only on-screen progress is a dialog and a dialog blocks working
+# in Fusion while it is up, which is why this is a choice rather than the
+# default. With it off, progress still goes to the session log every chunk.
+SHOW_PROGRESS = False
+
+# Below this many operations a pass is quick enough that a progress bar is
+# only a flicker, so it is not shown even when the switch is on.
+PROGRESS_FROM = 40
+PROGRESS_MESSAGE = "Checking operation %v of %m"
+
 # ---------------------------------------------------------------------------
 # Where the report goes
 # ---------------------------------------------------------------------------

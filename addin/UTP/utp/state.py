@@ -19,8 +19,12 @@ RETIRED = "preset not in the library"
 UNKNOWN = "unknown"
 
 
-def reconcile(operation, library_tools):
-    """What the add-in would say about one operation."""
+def reconcile(operation, library_tools, seen=None):
+    """What the add-in would say about one operation.
+
+    `seen` is an optional dict for one pass to share preset readings in.
+    Six operations on the same preset read its values six times otherwise.
+    """
     verdict = {
         "operation": _name(operation),
         "operationId": _id(operation),
@@ -92,8 +96,16 @@ def reconcile(operation, library_tools):
     # Custom beats behind: somebody who changed values on purpose is not
     # told to update. Compared against the preset inside this document,
     # because that is what the operation's values were set from.
-    operation_values = values.scalars(operation)
-    preset_values = values.scalars(preset)
+    # The preset first, then the operation asked only for what the preset
+    # has. Reading all of an operation's parameters and intersecting
+    # afterwards did the same work ten times over.
+    if seen is not None and preset.id in seen:
+        preset_values = seen[preset.id]
+    else:
+        preset_values = values.scalars(preset)
+        if seen is not None:
+            seen[preset.id] = preset_values
+    operation_values = values.named(operation, preset_values)
     edited = values.differences(operation_values, preset_values)
     if edited:
         verdict["differences"] = edited

@@ -128,6 +128,13 @@ All in `addin/UTP/utp/config.py`.
 | `MAY_SYNC_PRESETS` | UTPs added at the shop are brought into documents that use the tool |
 | `MAY_TIDY_PRESETS` | copies nothing uses any more may be removed |
 | `ONLY_DOCUMENTS_ALREADY_MARKED` | a rollout guard: events only touch documents the button has been pressed in |
+| `SHOW_PROGRESS` | show a progress bar with a cancel button while the button's pass runs |
+
+`SHOW_PROGRESS` is off because Fusion's only on-screen progress is a dialog,
+and a dialog blocks working in Fusion while it is up. With it off, progress
+goes to the session log every twenty operations instead, which gets in
+nobody's way but has to be looked at to be seen. Turn it on if you would
+rather watch a bar, or want a cancel button on a very large file.
 
 All of them are on, and `ONLY_DOCUMENTS_ALREADY_MARKED` is off, which is the
 ordinary working state. They were turned on one at a time, reading the report

@@ -30,16 +30,22 @@ class LibraryPreset:
         # Withheld, everything falls back to naming by date and saying
         # "update available", which is vaguer and never wrong.
         stated = _attribute(preset, config.KEY_VERSION)
-        self.version = stated if self._describes(preset, stated) else None
+        self.version = stated if self._describes(preset, stated,
+                                                 self.values) else None
 
     @staticmethod
-    def _describes(preset, stated):
+    def _describes(preset, stated, held):
+        """Whether a stated version still describes the values held.
+
+        Given the values rather than reading them again: every preset in
+        every library was being read twice, once for `values` and once here,
+        which was half the cost of reading the libraries at all.
+        """
         if not stated:
             return False
         snapshot = versions.stored_snapshot(preset)
         if snapshot is None:
             return False
-        held = values.scalars(preset)
         return not (values.differences(held, snapshot)
                     or set(held) != set(snapshot))
 

@@ -34,6 +34,32 @@ def scalars(owner):
     return out
 
 
+def named(owner, names):
+    """The values of just these parameters, looked up by name.
+
+    An operation carries about three hundred readable parameters and a
+    preset about fifteen, and only the ones both have are ever compared. So
+    reading all three hundred threw away nine tenths of the work: the preset
+    is read first and the operation is then asked only for those names.
+    """
+    out = {}
+    try:
+        parameters = owner.parameters
+    except Exception:
+        return out
+    for name in names:
+        try:
+            parameter = parameters.itemByName(name)
+            if parameter is None:
+                continue
+            value = parameter.value.value
+        except Exception:
+            continue
+        if isinstance(value, config.COMPARABLE_TYPES):
+            out[name] = value
+    return out
+
+
 def _same(a, b):
     if isinstance(a, bool) or isinstance(b, bool):
         return a == b
