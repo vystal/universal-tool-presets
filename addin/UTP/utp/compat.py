@@ -50,13 +50,19 @@ def schema_of(owner):
         return config.SCHEMA + 1
 
 
-def survey(owners):
-    """The newest schema anything here was written against."""
+def survey(owners, breathe=None):
+    """The newest schema anything here was written against.
+
+    One attribute read per operation, which on a four hundred operation file
+    is long enough to be worth handing the main thread back during.
+    """
     newest = 0
-    for owner in owners:
+    for index, owner in enumerate(owners):
         found = schema_of(owner)
         if found and found > newest:
             newest = found
+        if breathe is not None:
+            breathe(index)
     return newest
 
 

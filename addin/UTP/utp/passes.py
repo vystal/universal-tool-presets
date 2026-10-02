@@ -6,6 +6,8 @@ burst of API calls and a read-only phase has nothing urgent to say. The work
 is chunked, with a breath between chunks, for the same reason.
 """
 
+import time
+
 import adsk.core
 import adsk.cam
 
@@ -30,22 +32,77 @@ def _users(vector):
     return "could not be read"
 
 
-def _document_tool(cam, tool_id):
-    """A tool in the document, looked up fresh by id.
+class _Clock:
+    """How long each stage of a pass took.
 
-    update() leaves every tool reference taken before it invalid, so a pass
-    that touches more than one tool has to re-find each one rather than hold
-    on to it.
+    Added because the first run on a four hundred operation file took
+    twenty-seven seconds and nobody could say which part of it did, which
+    made the next change a guess.
     """
+
+    def __init__(self, report):
+        self.report = report
+        self.last = time.time()
+        self.stages = {}
+
+    def at(self, stage):
+        now = time.time()
+        self.stages[stage] = round(now - self.last, 2)
+        self.last = now
+
+    def say(self):
+        if self.stages:
+            self.report.note("seconds spent", **self.stages)
+
+
+def _breathe(index, every=None):
+    """Hand Fusion back the main thread for a moment.
+
+    Everything here runs on that thread, because the Fusion API cannot be
+    used off it, so a long uninterrupted loop is what makes Fusion go grey
+    and say "not responding". Every loop that can run long gives it a breath.
+
+    The cost of breathing is that somebody could change the document
+    mid-pass. Nothing is held across a breath that would not be re-read
+    anyway, and a verdict is worked out from the document as it stands.
+    """
+    if index and index % (every or config.OPERATIONS_PER_CHUNK) == 0:
+        adsk.doEvents()
+
+
+def _document_tools(cam):
+    """Every tool in the document, by id. One pass over the shelf.
+
+    Looking each one up on its own scanned the whole shelf and asked every
+    tool on it for its id, and an id costs a toJson() of the entire tool. On
+    a file with a hundred tools that is ten thousand tool serialisations for
+    a hundred answers.
+    """
+    found = {}
     try:
         shelf = cam.documentToolLibrary
         for index in range(shelf.count):
             candidate = shelf.item(index)
-            if library.tool_id(candidate) == tool_id:
-                return candidate
+            key = library.tool_id(candidate)
+            if key:
+                found[key] = candidate
+            # An id costs a toJson() of the whole tool, so this is one of the
+            # slowest loops in a pass.
+            _breathe(index)
     except Exception:
         pass
-    return None
+    return found
+
+
+def _document_tool(cam, tool_id, shelf=None):
+    """A tool in the document by id, from a map built once if given one.
+
+    update() leaves every tool reference taken before it invalid, so a map
+    built before one has to be thrown away rather than reused.
+    """
+    if shelf is not None:
+        return shelf.get(tool_id)
+    return _document_tools(cam).get(tool_id)
 
 
 class _Progress:
@@ -168,8 +225,10 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing):
     reference taken before it stale.
     """
     wrote = False
-    for tool_id, library_tool in in_use.items():
-        tool = _document_tool(cam, tool_id)
+    shelf = _document_tools(cam)
+    for seen, (tool_id, library_tool) in enumerate(in_use.items()):
+        _breathe(seen, 5)
+        tool = shelf.get(tool_id)
         if tool is None:
             continue
 
@@ -192,7 +251,8 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing):
                     except Exception:
                         report.failed("could not bring in %s"
                                       % library_preset.name)
-                tool = _document_tool(cam, tool_id)
+                shelf = _document_tools(cam)   # update() invalidated them
+                tool = shelf.get(tool_id)
                 if tool is None:
                     continue
 
@@ -223,6 +283,7 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing):
                         did=presets.remove(cam, tool, spare))
             report.wrote += len(spare)
             wrote = True
+            shelf = _document_tools(cam)   # update() invalidated them
         except Exception:
             report.failed("could not tidy %s" % library_tool.description)
     return wrote
@@ -272,8 +333,9 @@ def _ensure_presets(cam, decided, tools, report, writing):
         return wrote
 
     allowed = writing and config.MAY_ADD_PRESETS
+    shelf = _document_tools(cam)
     for tool_id, library_preset in wanted.values():
-        tool = _document_tool(cam, tool_id)
+        tool = shelf.get(tool_id)
         if tool is None:
             report.failed("the tool for %s is no longer in the document"
                           % library_preset.name)
@@ -293,6 +355,7 @@ def _ensure_presets(cam, decided, tools, report, writing):
             done = presets.apply(cam, tool, library_preset, intended)
             report.note("added to the document tool library", did=done)
             report.wrote += len(done)
+            shelf = _document_tools(cam)   # update() invalidated them
             wrote = True
         except Exception:
             report.failed("could not add a preset for %s" % library_preset.name)
@@ -311,7 +374,8 @@ def _mark_setups(cam, tools, report, writing, decided=None):
             known[verdict["operationId"]] = verdict
     for setup, operations in by_setup(cam):
         counts = {}
-        for operation in operations:
+        for index, operation in enumerate(operations):
+            _breathe(index)
             try:
                 verdict = known.get(str(operation.operationId))
                 if verdict is None:
@@ -475,6 +539,7 @@ def _within(owner, seen=None):
         except Exception:
             continue
         for index in range(collection.count):
+            _breathe(index)
             try:
                 item = collection.item(index)
             except Exception:
@@ -528,7 +593,9 @@ def run(app):
 
         # Pressing the button is also what warms the cache the edit handler
         # needs, so it always re-reads rather than trusting an old read.
+        clock = _Clock(report)
         tools, ok = library.cached(report, adsk.doEvents, force=True)
+        clock.at("read the Hub libraries")
         if not ok:
             report.note("stopping: without the library nothing can be decided")
             return (report.close(), {},
@@ -541,7 +608,7 @@ def run(app):
         writing = config.MAY_WRITE_ON_DEMAND and _writable(document, report)
         # A file written by a newer add-in is read and reported on, never
         # changed: its rules are not this version's to second-guess.
-        newest = compat.survey(operations)
+        newest = compat.survey(operations, _breathe)
         understood, refusal = compat.may_write(newest)
         if not understood:
             report.note("NOT WRITING", reason=refusal)
@@ -554,13 +621,17 @@ def run(app):
         report.note("found operations", count=len(operations),
                     writing="yes" if writing else "no", **shape)
 
+        clock.at("walked the document")
+
         progress = _Progress(app, len(operations), report)
         decided = _verdicts(operations, tools, report, progress)
+        clock.at("worked out every verdict")
 
         # Versions before anything reads them, so a note can name one. The
         # refreshed libraries are taken back, because a bump changes what
         # every later step should be reading.
         tools = _review_versions(cam, decided, tools, report, writing)
+        clock.at("reviewed version numbers")
 
         # Presets first, notes second. A behind operation's note is worth
         # little until the newer values are pickable in its dropdown, and
@@ -592,8 +663,11 @@ def run(app):
             if index % config.OPERATIONS_PER_CHUNK == 0:
                 adsk.doEvents()
 
+        clock.at("presets, notes and icons")
         progress.done()
         _mark_setups(cam, tools, report, writing, decided)
+        clock.at("setup notes")
+        clock.say()
 
         counts = dict(report.counts)
         path = report.close()
