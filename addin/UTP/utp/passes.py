@@ -626,7 +626,7 @@ def _walk(cam):
     return found, shape
 
 
-def run(app):
+def run(app, allow_writing=True):
     """Check the active document. Returns (report path, counts, message)."""
     document = app.activeDocument
     report = diagnostics.Report(document.name if document else "no document")
@@ -657,7 +657,10 @@ def run(app):
         # traverse the whole document again each, for nothing but to read it.
         operations, shape = _walk(cam)
 
-        writing = config.MAY_WRITE_ON_DEMAND and _writable(document, report)
+        # allow_writing is how "check without changing anything" works: the
+        # same pass, deciding everything and writing none of it.
+        writing = (allow_writing and config.MAY_WRITE_ON_DEMAND
+                   and _writable(document, report))
         # A file written by a newer add-in is read and reported on, never
         # changed: its rules are not this version's to second-guess.
         newest = compat.survey(operations, _breathe)

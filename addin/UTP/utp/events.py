@@ -175,8 +175,11 @@ class _DocumentSaving(adsk.core.DocumentEventHandler):
             allowed, held_back = _may_write(document, all_operations)
             counts = {}
             planned = wrote = failed = 0
+            # Shared across the pass, as the button's does: six operations on
+            # one preset read its values six times otherwise.
+            seen = {}
             for index, operation in enumerate(all_operations):
-                verdict = state.reconcile(operation, tools)
+                verdict = state.reconcile(operation, tools, seen)
                 counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
                 would = marks.plan(operation, verdict)
                 if not would:
@@ -187,10 +190,13 @@ class _DocumentSaving(adsk.core.DocumentEventHandler):
                 try:
                     marks.apply(operation, would)
                     wrote += 1
+                    # After each write, not every twentieth operation: a
+                    # marked operation costs two writes at about 150
+                    # milliseconds and twenty of those is six seconds with
+                    # Fusion frozen mid-save.
+                    adsk.doEvents()
                 except Exception:
                     failed += 1
-                # A save can cover any number of operations, so it gives Fusion
-                # a breath rather than running straight through.
                 if index % config.OPERATIONS_PER_CHUNK == 0:
                     adsk.doEvents()
             diagnostics.session_log(

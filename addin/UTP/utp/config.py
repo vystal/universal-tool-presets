@@ -291,6 +291,81 @@ MENU_ID = "UTPMenu"
 MENU_NAME = "UTP"
 MENU_TOOLTIP = "Universal Tool Presets"
 
+# A panel of this add-in's own, rather than squeezing into one of Fusion's.
+# Put into a dropdown inside somebody else's panel it came out nested in
+# their menu, which is not a dropdown of its own.
+PANEL_ID = "UTPPanel"
+PANEL_NAME = "UTP"
+
+# The tab to put that panel on, matched on id or name containing this.
+PREFERRED_TAB = "utilit"
+
+DRY_COMMAND_ID = "UTPCheckOnly"
+DRY_COMMAND_NAME = "Check without changing anything"
+DRY_COMMAND_TOOLTIP = ("Works out what it would do and writes none of it. "
+                       "For looking at a job before letting anything near it.")
+
+REFRESH_COMMAND_ID = "UTPRefresh"
+REFRESH_COMMAND_NAME = "Pick up library changes"
+REFRESH_COMMAND_TOOLTIP = ("Reads the Hub libraries again. For when somebody "
+                           "has changed a preset while Fusion was open.")
+REFRESHED = "Read %d tools and %d presets from %d libraries."
+
+FOLDER_COMMAND_ID = "UTPFolder"
+FOLDER_COMMAND_NAME = "Open the reports folder"
+FOLDER_COMMAND_TOOLTIP = "Opens the folder every report is written to."
+
+SWITCHES_COMMAND_ID = "UTPSwitches"
+SWITCHES_COMMAND_NAME = "Show the switches"
+SWITCHES_COMMAND_TOOLTIP = "What this add-in is currently allowed to do."
+
+HELP_COMMAND_ID = "UTPHelp"
+HELP_COMMAND_NAME = "Instructions"
+HELP_COMMAND_TOOLTIP = "What the notes mean and what to do about them."
+
+INSTRUCTIONS = """What this does
+
+Your tools' feeds and speeds live in the shop libraries. When somebody
+changes them there, documents already made know nothing about it. This marks
+each operation with where it stands, so you can see it and update it.
+
+It never changes an operation's feeds. Only you do that, by picking a preset.
+
+
+The notes on your operations
+
+   [UTP] Titanium v3                    green    on the current feeds
+   [UTP] Titanium v2 - v3 available     yellow   something newer exists
+   [UTP] Custom                         grey     its feeds were changed here
+   no note                              never put on a shop preset
+
+To update a yellow one: open the operation, go to the preset dropdown, pick
+the one ending (latest). The note turns green. Ctrl+Z puts it back.
+
+If you would rather leave it, leave it. Nothing will chase you.
+
+
+The note on a setup
+
+A collapsed setup hides its operations, so each setup says what is inside:
+"2 of 7 need updating" in yellow, or "7 tracked, up to date" in green. The
+count is only of operations being tracked.
+
+
+When it runs
+
+When you save a document, and when you change an operation. Nothing else:
+nothing on opening a file, nothing in the background.
+
+
+Things worth knowing
+
+Your own notes are kept. It only owns the line starting [UTP].
+Your own icon colours are kept, and put back if you remove the marks.
+Older jobs stay silent. Nothing is marked until somebody uses a shop preset.
+Every check writes a report to the reports folder, saying what it found.
+If something looks wrong, "Write a debug report" makes a file to send on."""
+
 # Where that dropdown goes, first of these that exists on this build. The
 # Utilities tab is wanted; the rest are there so a build that names its
 # panels differently still gets the menu somewhere rather than nowhere. The

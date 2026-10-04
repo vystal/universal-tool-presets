@@ -4,4 +4,4 @@ The packaging script reads it from here and writes the VERSION file that the
 loader compares against, so the two cannot drift apart.
 """
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
