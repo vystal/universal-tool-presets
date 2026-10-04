@@ -44,6 +44,10 @@ class Report:
         # operation's preset is one nothing is protecting.
         self.failures = 0
         self.pending = 0
+        # Told, not inferred from a switch: a pass asked to change nothing
+        # must not report that writing was allowed just because the switch
+        # says it usually is.
+        self.writing = None
         try:
             os.makedirs(self.dir, exist_ok=True)
             self.stream = open(self.base + ".jsonl", "a", encoding="utf-8")
@@ -116,7 +120,9 @@ class Report:
         if self.wrote:
             return ("%d change%s written to this document."
                     % (self.wrote, "" if self.wrote == 1 else "s"))
-        if config.MAY_WRITE_ON_DEMAND:
+        allowed = (config.MAY_WRITE_ON_DEMAND if self.writing is None
+                   else self.writing)
+        if allowed:
             return "Writing was allowed; nothing needed changing."
         return "Nothing was changed."
 
@@ -157,8 +163,9 @@ class Report:
             for entry in would:
                 for key in entry["would"]:
                     kinds[key] = kinds.get(key, 0) + 1
-            heading = ("## What it wrote"
-                       if self.wrote or config.MAY_WRITE_ON_DEMAND
+            allowed = (config.MAY_WRITE_ON_DEMAND if self.writing is None
+                       else self.writing)
+            heading = ("## What it wrote" if self.wrote or allowed
                        else "## What it would write, if writing were on")
             out += [heading, "", self._what_happened(), ""]
             for key in sorted(kinds):

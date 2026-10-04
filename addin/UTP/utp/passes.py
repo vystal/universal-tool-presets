@@ -668,6 +668,7 @@ def run(app, allow_writing=True):
         if not understood:
             report.note("NOT WRITING", reason=refusal)
             writing = False
+        report.writing = writing
         if writing:
             # Pressing the button is how a document joins the system, which is
             # what lets later edits and saves write to it.
