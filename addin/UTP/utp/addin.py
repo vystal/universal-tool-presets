@@ -77,6 +77,29 @@ class _UnmarkExecute(adsk.core.CommandEventHandler):
             _report_failure("removing the marks")
 
 
+class _DebugCreated(adsk.core.CommandCreatedEventHandler):
+    def notify(self, args):
+        try:
+            execute = _DebugExecute()
+            args.command.execute.add(execute)
+            _handlers.append(execute)
+            args.command.isAutoExecute = True
+        except Exception:
+            _report_failure("preparing the command")
+
+
+class _DebugExecute(adsk.core.CommandEventHandler):
+    def notify(self, args):
+        app = adsk.core.Application.get()
+        try:
+            from . import debug
+            path = debug.collect(app)
+            _say(app, config.DEBUG_WRITTEN if path else config.DEBUG_FAILED,
+                 path)
+        except Exception:
+            _report_failure("writing a debug report")
+
+
 def _say(app, message, path):
     where = "\n\nReport:\n%s" % path if path else ""
     app.userInterface.messageBox(message + where, config.DIALOG_TITLE)
@@ -92,9 +115,14 @@ def _report_failure(what):
         pass
 
 
-def _add_button(ui, definition, command_id=None):
-    """Put the button wherever this build keeps its Manufacture panels."""
-    command_id = command_id or config.COMMAND_ID
+def _menu(ui):
+    """The dropdown everything hangs off, in the first panel that takes it.
+
+    A dropdown of its own rather than buttons loose among Fusion's, which is
+    both tidier and means one place to look. Where it ends up is a list
+    rather than a guess, because panel ids differ between builds, and the
+    debug report lists what this build actually has.
+    """
     for workspace_id, panel_id in config.CANDIDATE_PANELS:
         try:
             workspace = ui.workspaces.itemById(workspace_id)
@@ -103,10 +131,14 @@ def _add_button(ui, definition, command_id=None):
             panel = workspace.toolbarPanels.itemById(panel_id)
             if panel is None:
                 continue
-            existing = panel.controls.itemById(command_id)
+            existing = panel.controls.itemById(config.MENU_ID)
             if existing:
                 existing.deleteMe()
-            return panel.controls.addCommand(definition)
+            menu = panel.controls.addDropDown(
+                config.MENU_NAME, "", config.MENU_ID)
+            if menu is not None:
+                _state["where"] = "%s / %s" % (workspace_id, panel_id)
+                return menu
         except Exception:
             continue
     return None
@@ -140,12 +172,26 @@ def start(app, loaded_from_path=None):
         unmark.commandCreated.add(unmark_created)
         _handlers.append(unmark_created)
 
-        _state["control"] = _add_button(ui, definition)
-        _state["unmark"] = _add_button(ui, unmark, config.UNMARK_COMMAND_ID)
+        report = definitions.itemById(config.DEBUG_COMMAND_ID)
+        if report:
+            report.deleteMe()
+        report = definitions.addButtonDefinition(
+            config.DEBUG_COMMAND_ID, config.DEBUG_COMMAND_NAME,
+            config.DEBUG_COMMAND_TOOLTIP)
+        report_created = _DebugCreated()
+        report.commandCreated.add(report_created)
+        _handlers.append(report_created)
+
+        menu = _menu(ui)
+        _state["menu"] = menu
+        if menu is not None:
+            for each in (definition, unmark, report):
+                menu.controls.addCommand(each)
         diagnostics.session_log("started", version=version.VERSION,
                                 loaded_from=loaded_from_path or "in place",
-                                schema=config.SCHEMA)
-        if _state["control"] is None:
+                                schema=config.SCHEMA,
+                                menu=_state.get("where") or "nowhere")
+        if menu is None:
             ui.messageBox(config.NO_PANEL, config.DIALOG_TITLE)
     except Exception:
         _report_failure("starting")
@@ -159,11 +205,12 @@ def shutdown(app):
             events.disarm(app)
         except Exception:
             pass
-        for key in ("control", "unmark"):
-            if _state.get(key):
-                _state[key].deleteMe()
-            _state[key] = None
-        for command_id in (config.COMMAND_ID, config.UNMARK_COMMAND_ID):
+        # The dropdown goes, and its commands with it.
+        if _state.get("menu"):
+            _state["menu"].deleteMe()
+        _state["menu"] = None
+        for command_id in (config.COMMAND_ID, config.UNMARK_COMMAND_ID,
+                           config.DEBUG_COMMAND_ID):
             definition = ui.commandDefinitions.itemById(command_id)
             if definition:
                 definition.deleteMe()

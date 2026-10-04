@@ -441,6 +441,7 @@ def _mark_setups(cam, tools, report, writing, decided=None):
             continue
         try:
             marks.apply(setup, changes)
+            adsk.doEvents()
             report.wrote += len(changes)
             report.note("marked the setup %s" % name,
                         did=marks.describe(changes))
@@ -482,6 +483,7 @@ def remove_marks(app):
                     continue
                 try:
                     done = marks.unapply(owner, changes)
+                    adsk.doEvents()
                     report.wrote += len(changes)
                     cleared += 1
                     # Named, not just counted. A command whose job is removal
@@ -720,6 +722,10 @@ def run(app):
                         report.failed("could not write to %s"
                                       % verdict["operation"])
                     spent["writing marks"] += time.time() - mark
+                    # After writing, not every twentieth operation: two
+                    # writes at 150ms each means twenty of them is six
+                    # seconds with Fusion frozen.
+                    _breathe(1, config.WRITES_PER_CHUNK)
                 mark = time.time()
                 report.operation(verdict)
                 spent["recording the verdict"] += time.time() - mark

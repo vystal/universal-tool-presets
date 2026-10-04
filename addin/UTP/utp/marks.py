@@ -116,6 +116,18 @@ def record(verdict):
             config.KEY_OPERATION_ID: verdict["operationId"]}
 
 
+def _was_icon(owner):
+    """The colour an operation had before the add-in first touched it."""
+    try:
+        record = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
+                                             config.KEY_RECORD)
+        if record is not None:
+            return json.loads(record.value).get("i")
+    except Exception:
+        pass
+    return None
+
+
 def plan(operation, verdict):
     """What would change on this operation. Empty means nothing to do.
 
@@ -138,9 +150,16 @@ def plan(operation, verdict):
 
     wanted_record = record(verdict)
     if wanted_record and not verdict.get("record"):
+        # What the icon was before any of this, so unmarking can put it
+        # back. A note's own text is kept carefully and a colour somebody
+        # chose deliberately was simply overwritten, which is inconsistent.
+        was = _icon(operation)
+        if was is not None:
+            wanted_record["i"] = was
         changes["record"] = wanted_record
 
     return changes
+
 
 
 _writing = {"depth": 0}
@@ -176,8 +195,11 @@ def strip(owner):
     if wanted != (existing or ""):
         changes["note"] = {"from": existing or "", "to": wanted}
     now = _icon(owner)
-    if now is not None and now != config.ICON_DEFAULT:
-        changes["icon"] = {"from": now, "to": config.ICON_DEFAULT}
+    # Back to whatever it was before the add-in touched it, not to the
+    # default: somebody may have coloured it themselves.
+    before = _was_icon(owner) or config.ICON_DEFAULT
+    if now is not None and now != before:
+        changes["icon"] = {"from": now, "to": before}
     held = _group_keys(owner)
     if held:
         changes["record"] = {"remove": held}

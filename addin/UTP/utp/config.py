@@ -129,6 +129,12 @@ COMPARABLE_TYPES = (int, float, str, bool)
 # pass gives it a breath every this many operations.
 OPERATIONS_PER_CHUNK = 20
 
+# Writing is a different matter. A marked operation costs two writes at
+# about 150 milliseconds each, so breathing every twenty of those would hand
+# Fusion back the thread once every six seconds, which is what makes it go
+# grey. Reading is cheap enough for twenty; writing is not.
+WRITES_PER_CHUNK = 1
+
 # Show a progress bar while the button's pass runs, with a cancel button.
 #
 # Off, because Fusion has no out-of-the-way way to show progress: a dialog
@@ -269,11 +275,32 @@ UNMARK_COMMAND_NAME = "UTP: remove all marks from this document"
 UNMARK_COMMAND_TOOLTIP = ("Takes every UTP note, colour and record back out "
                           "of this document. Presets are left alone.")
 
-# Whichever of these panels exists on this build gets the button. Panel ids
-# move between Fusion releases, so this is a list rather than a guess.
+DEBUG_WRITTEN = ("Written down everything worth knowing about this machine, "
+                 "this document and the libraries. Send this file on.")
+DEBUG_FAILED = "The debug report could not be written."
+
+DEBUG_COMMAND_ID = "UTPDebug"
+DEBUG_COMMAND_NAME = "UTP: write a debug report"
+DEBUG_COMMAND_TOOLTIP = ("Writes down everything worth knowing about this "
+                         "machine, this document and the libraries, in one "
+                         "file to send on. Changes nothing.")
+
+# Everything lives under one dropdown of its own rather than loose among
+# Fusion's buttons.
+MENU_ID = "UTPMenu"
+MENU_NAME = "UTP"
+MENU_TOOLTIP = "Universal Tool Presets"
+
+# Where that dropdown goes, first of these that exists on this build. The
+# Utilities tab is wanted; the rest are there so a build that names its
+# panels differently still gets the menu somewhere rather than nowhere. The
+# debug report lists every panel this Fusion actually has, which is how this
+# list gets corrected rather than guessed at again.
 CANDIDATE_PANELS = [
-    ("CAMEnvironment", "CAMManagePanel"),
+    ("CAMEnvironment", "CAMUtilityPanel"),
     ("CAMEnvironment", "CAMUtilitiesPanel"),
+    ("CAMEnvironment", "UtilityPanel"),
+    ("CAMEnvironment", "CAMManagePanel"),
     ("CAMEnvironment", "CAMActionPanel"),
     ("FusionSolidEnvironment", "SolidScriptsAddinsPanel"),
 ]
