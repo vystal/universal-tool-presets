@@ -23,6 +23,7 @@ from . import compat, config, diagnostics, library, marks, state
 
 _handlers = []
 _running = {"undo": False}
+_state = {}
 
 # Documents the button has been pressed in, by name. The rollout guard uses
 # this so an edit or a save cannot start marking a document nobody asked it
@@ -199,12 +200,34 @@ class _DocumentSaving(adsk.core.DocumentEventHandler):
                     failed += 1
                 if index % config.OPERATIONS_PER_CHUNK == 0:
                     adsk.doEvents()
+            _state["wrote_during_save"] = wrote
             diagnostics.session_log(
                 "save seen", document=getattr(document, "name", "?"),
                 verdicts=counts, would_mark=planned, wrote=wrote,
                 failed=failed or None, held_back=held_back)
         except Exception as exc:
             diagnostics.session_log("save handler failed", error=str(exc))
+
+
+class _DocumentSaved(adsk.core.DocumentEventHandler):
+    """Did writing during the save leave the file dirty again?
+
+    The marking runs on documentSaving, before the save, so that what it
+    writes is part of that save. If Fusion has already taken its snapshot by
+    then, the writes land after it and the document is modified the instant
+    it finishes, which would mean never being able to close one cleanly.
+    Asked rather than assumed.
+    """
+
+    def notify(self, args):
+        try:
+            document = getattr(args, "document", None)
+            diagnostics.session_log(
+                "saved", document=getattr(document, "name", "?"),
+                modified_again=getattr(document, "isModified", "unknown"),
+                wrote_during_the_save=_state.pop("wrote_during_save", 0))
+        except Exception:
+            pass
 
 
 class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
@@ -258,6 +281,7 @@ def arm(app):
 
     for label, event, handler in (
             ("document saving", app.documentSaving, _DocumentSaving()),
+            ("document saved", app.documentSaved, _DocumentSaved()),
             ("commands starting", app.userInterface.commandStarting,
              _CommandStarting()),
             ("commands ending", app.userInterface.commandTerminated,

@@ -147,7 +147,16 @@ def _switches(app):
 
 
 def _help(app):
-    return config.INSTRUCTIONS, None
+    """Opened as a page, not shown in a dialog.
+
+    A Fusion message box renders in a proportional font and swallows blank
+    lines, so an aligned plain-text sheet came out as a wall of words.
+    """
+    from . import instructions
+    path = instructions.show(version.VERSION)
+    if path is None:
+        return config.INSTRUCTIONS, None
+    return None, None
 
 
 def _debug(app):

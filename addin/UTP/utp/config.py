@@ -266,12 +266,12 @@ UNMARK_CONFIRM = ("Remove every UTP note, colour and record from this "
 # ---------------------------------------------------------------------------
 
 COMMAND_ID = "UTPCheckDocument"
-COMMAND_NAME = "UTP: check this document"
+COMMAND_NAME = "Check this document"
 COMMAND_TOOLTIP = ("Works out what the UTP add-in would say about every "
                    "operation here, and writes it to a file. Changes nothing.")
 
 UNMARK_COMMAND_ID = "UTPRemoveMarks"
-UNMARK_COMMAND_NAME = "UTP: remove all marks from this document"
+UNMARK_COMMAND_NAME = "Remove all marks"
 UNMARK_COMMAND_TOOLTIP = ("Takes every UTP note, colour and record back out "
                           "of this document. Presets are left alone.")
 
@@ -280,7 +280,7 @@ DEBUG_WRITTEN = ("Written down everything worth knowing about this machine, "
 DEBUG_FAILED = "The debug report could not be written."
 
 DEBUG_COMMAND_ID = "UTPDebug"
-DEBUG_COMMAND_NAME = "UTP: write a debug report"
+DEBUG_COMMAND_NAME = "Write a debug report"
 DEBUG_COMMAND_TOOLTIP = ("Writes down everything worth knowing about this "
                          "machine, this document and the libraries, in one "
                          "file to send on. Changes nothing.")
