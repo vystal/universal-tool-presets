@@ -128,7 +128,36 @@ def _was_icon(owner):
     return None
 
 
-def plan(operation, verdict):
+def _ours_in(existing):
+    """Whether our line is in a note at all."""
+    return any(line.startswith(config.NOTE_PREFIX)
+               for line in (existing or "").splitlines())
+
+
+def declined(owner):
+    """Whether somebody has said they do not want a note on this one."""
+    try:
+        record = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
+                                             config.KEY_RECORD)
+        if record is not None:
+            return json.loads(record.value).get("n") == 0
+    except Exception:
+        pass
+    return False
+
+
+def _held_record(owner):
+    try:
+        record = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
+                                             config.KEY_RECORD)
+        if record is not None:
+            return json.loads(record.value)
+    except Exception:
+        pass
+    return {}
+
+
+def plan(operation, verdict, honour_declines=True):
     """What would change on this operation. Empty means nothing to do.
 
     Idempotent by construction: it compares against what is there now, so a
@@ -136,9 +165,28 @@ def plan(operation, verdict):
     re-running after a crash harmless.
     """
     changes = {}
-
     existing = _notes(operation)
-    wanted = merge(existing, note_line(verdict))
+    line = note_line(verdict)
+
+    if honour_declines and declined(operation):
+        # They cleared it once. Not putting it back is the whole point.
+        return changes
+
+    if (honour_declines and line and verdict.get("record")
+            and not _ours_in(existing)):
+        # We had written a line here and it is gone, so somebody took it
+        # out. Clearing a note fires the same event as any other edit, so
+        # without this the line was back within milliseconds of being
+        # deleted and could not be got rid of at all.
+        held = _held_record(operation)
+        held["n"] = 0
+        changes["record"] = held
+        was = _was_icon(operation)
+        if was and _icon(operation) != was:
+            changes["icon"] = {"from": _icon(operation), "to": was}
+        return changes
+
+    wanted = merge(existing, line)
     if wanted != (existing or ""):
         changes["note"] = {"from": existing or "", "to": wanted}
 
@@ -149,7 +197,13 @@ def plan(operation, verdict):
             changes["icon"] = {"from": now, "to": colour}
 
     wanted_record = record(verdict)
-    if wanted_record and not verdict.get("record"):
+    if wanted_record and declined(operation) and not honour_declines:
+        # Pressing check is asking for the notes back.
+        held = _held_record(operation)
+        held.pop("n", None)
+        held.update(wanted_record)
+        changes["record"] = held
+    elif wanted_record and not verdict.get("record"):
         # What the icon was before any of this, so unmarking can put it
         # back. A note's own text is kept carefully and a colour somebody
         # chose deliberately was simply overwritten, which is inconsistent.

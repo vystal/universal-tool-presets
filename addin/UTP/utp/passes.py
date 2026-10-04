@@ -779,7 +779,8 @@ def run(app, allow_writing=True):
                 # Worked out whether or not it is allowed to happen, so the
                 # decisions can be read and argued with either way.
                 mark = time.time()
-                verdict["would"] = marks.plan(operation, verdict)
+                verdict["would"] = marks.plan(operation, verdict,
+                                              honour_declines=False)
                 spent["deciding what to mark"] += time.time() - mark
                 if writing and verdict["would"]:
                     mark = time.time()

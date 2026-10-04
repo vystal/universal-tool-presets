@@ -281,11 +281,11 @@ LEFT_ALONE = ("This document is being left alone: its marks were removed. "
 UNMARK_TAIL = ("\n\nIt will not be marked again by saving or editing. Press "
                "Check this document when you want it back.")
 
-UNMARKED = ("Removed every UTP mark from %d of %d operations and setups.\n\n"
+UNMARKED = ("Removed the UTP notes from %d of %d operations and setups.\n\n"
             "One Ctrl+Z puts them back. Presets were left alone, because an "
             "operation may be using one.")
 READ_ONLY = "This file is read-only, so nothing was changed."
-UNMARK_CONFIRM = ("Remove every UTP note, colour and record from this "
+UNMARK_CONFIRM = ("Remove every UTP note and colour from this "
                   "document?\n\nPresets are left alone. One Ctrl+Z puts it "
                   "all back, and the document is not saved.")
 
@@ -299,7 +299,7 @@ COMMAND_TOOLTIP = ("Works out what the UTP add-in would say about every "
                    "operation here, and writes it to a file. Changes nothing.")
 
 UNMARK_COMMAND_ID = "UTPRemoveMarks"
-UNMARK_COMMAND_NAME = "Remove all marks"
+UNMARK_COMMAND_NAME = "Remove all notes"
 UNMARK_COMMAND_TOOLTIP = ("Takes every UTP note, colour and record back out "
                           "of this document. Presets are left alone.")
 

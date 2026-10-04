@@ -109,7 +109,7 @@ text and left alone.
 
 ## Taking it back out
 
-**Remove all marks** takes every note, colour and record out of a document.
+**Remove all notes** takes every note, colour and record out of a document.
 It asks first, lands as one undo step, and leaves presets alone — an
 operation may be sitting on one it added, and removing that would re-point
 the operation at another preset without changing its values.
@@ -120,9 +120,12 @@ not a way out: the next save re-marked everything, because an operation whose
 values match the library is adopted on sight. **Check this document** clears
 the flag, since pressing it is asking for the marks.
 
-Deleting a note by hand does not stick, and is not meant to: the note
-describes where the operation stands, so it is worked out again on the next
-save.
+**Clearing the text of a single note keeps it gone**, for that operation
+only. Clearing a note is itself an operation change, so it raised the same
+event as any other edit and the line was written back within milliseconds of
+being deleted: there was no way to be rid of one. The record now carries a
+note saying this one was declined, every pass honours it, and pressing
+**Check this document** clears it because that is asking for the notes.
 
 ## Switches
 
