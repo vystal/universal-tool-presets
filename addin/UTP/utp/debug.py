@@ -17,10 +17,28 @@ import sys
 import adsk.core
 import adsk.cam
 
-from . import config, diagnostics, library, version
+from . import config, diagnostics, library, settings, version
+
+
+def _chosen():
+    """What somebody has switched on or off, and what it would be by default.
+
+    First, because when something is not happening this is nearly always why,
+    and a report that buried it under the build switches had people reading
+    past the answer.
+    """
+    held = settings.values()
+    lines = {}
+    for key, label, _group, _switch in settings.CONTROLS:
+        lines[label] = ("on" if held[key] else "off") + (
+            "" if held[key] == settings.default(key)
+            else "   (default %s)" % ("on" if settings.default(key) else "off"))
+    lines["switches file"] = config.SETTINGS_FILE
+    return lines
 
 
 def _switches():
+    """The build switches, which are not anybody in a shop's business."""
     return {name: getattr(config, name) for name in sorted(dir(config))
             if name.startswith("MAY_") or name in
             ("LISTEN_TO_EVENTS", "ONLY_DOCUMENTS_ALREADY_MARKED",
@@ -149,7 +167,8 @@ def collect(app):
         "session log": diagnostics.session_path() or "none yet",
         "events recorded this session": diagnostics.session_count(),
     })
-    section("Switches", _switches())
+    section("Switches", _chosen())
+    section("Build switches", _switches())
     section("This machine", {
         "Fusion": getattr(app, "version", "?"),
         "Python": sys.version.split()[0],

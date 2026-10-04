@@ -56,10 +56,13 @@ KEY_SCHEMA = "schema"
 # marked.
 SCHEMA = 2
 
-# On the document, saying this one is not to be marked. Set by removing the
-# marks and cleared by deliberately checking the document, so taking the
-# marks out keeps them out: without it the next save put every one of them
-# back, and the way out was not a way out.
+# Was written on a document by Remove all notes, so a save would not put the
+# notes straight back. The wrong answer twice over: a note says where an
+# operation stands, so a save working it out again is the add-in doing its
+# job, and a hidden flag inside somebody's file is not how an add-in gets
+# turned off. The Switches dialog is. Nothing reads this any more, and Remove
+# all notes deletes it where it finds one, so the documents that were given
+# one get it taken out again.
 KEY_LEAVE_ALONE = "leaveAlone"
 
 # On a library preset. A label, never a decision: what is behind and what is
@@ -184,6 +187,11 @@ PROGRESS_MARKING = "Marking operation %v of %m"
 REPORT_DIR = os.path.join(
     os.path.expanduser("~"), "Documents", "UTP diagnostics")
 
+# The switches somebody has changed, kept here rather than hidden away, so
+# the folder button reaches it and a machine set up the way the shop wants
+# can have this one file copied onto the next one.
+SETTINGS_FILE = os.path.join(REPORT_DIR, "UTP switches.json")
+
 # ---------------------------------------------------------------------------
 # What a note says
 # ---------------------------------------------------------------------------
@@ -276,14 +284,11 @@ NEWER_ADDIN = ("this file was written by a newer UTP add-in (schema %d, this "
 # The button
 # ---------------------------------------------------------------------------
 
-LEFT_ALONE = ("This document is being left alone: its marks were removed. "
-              "Press Check this document to mark it again.")
-UNMARK_TAIL = ("\n\nIt will not be marked again by saving or editing. Press "
-               "Check this document when you want it back.")
-
 UNMARKED = ("Removed the UTP notes from %d of %d operations and setups.\n\n"
             "One Ctrl+Z puts them back. Presets were left alone, because an "
-            "operation may be using one.")
+            "operation may be using one.\n\nSaving or checking this document "
+            "works the notes out again. To stop that, turn the add-in off "
+            "under Switches.")
 READ_ONLY = "This file is read-only, so nothing was changed."
 UNMARK_CONFIRM = ("Remove every UTP note and colour from this "
                   "document?\n\nPresets are left alone. One Ctrl+Z puts it "
@@ -340,8 +345,21 @@ FOLDER_COMMAND_NAME = "Open the reports folder"
 FOLDER_COMMAND_TOOLTIP = "Opens the folder every report is written to."
 
 SWITCHES_COMMAND_ID = "UTPSwitches"
-SWITCHES_COMMAND_NAME = "Show the switches"
-SWITCHES_COMMAND_TOOLTIP = "What this add-in is currently allowed to do."
+SWITCHES_COMMAND_NAME = "Switches"
+SWITCHES_COMMAND_TOOLTIP = ("Turn the add-in, or any one thing it does, on "
+                            "or off.")
+SWITCHES_SAVED = "Switches saved.\n\n%s"
+SWITCHES_UNCHANGED = "Nothing changed."
+SWITCHES_FOOTER = ("These are for this machine, not for the document. They "
+                   "stay set until you change them.")
+
+# Said by the buttons that write, when the add-in is switched off. Rather than
+# doing nothing and leaving somebody wondering which of the two it was.
+IS_OFF = ("Universal Tool Presets is switched off, so nothing was changed."
+          "\n\nTurn it on under Switches.")
+MARKING_OFF = ("Putting notes on operations is switched off, so nothing was "
+               "changed. The report says what it would have done."
+               "\n\nTurn it on under Switches.")
 
 HELP_COMMAND_ID = "UTPHelp"
 HELP_COMMAND_NAME = "Instructions"
@@ -380,6 +398,21 @@ When it runs
 
 When you save a document, and when you change an operation. Nothing else:
 nothing on opening a file, nothing in the background.
+
+
+Turning it off
+
+Switches has a checkbox for each of those, and one at the top for the whole
+add-in. Off means off: nothing happens on its own, and the buttons that
+change things say so instead of doing it.
+
+Those are for your machine, not for the document, and they stay how you set
+them.
+
+Clearing a note by hand is not a switch. A note says where an operation
+stands, so the next save works it out and writes it again. If you clear one
+while you are editing it will stay clear until then. To stop the notes for
+good, use Switches.
 
 
 Things worth knowing

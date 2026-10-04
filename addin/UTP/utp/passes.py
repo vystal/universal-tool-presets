@@ -12,7 +12,7 @@ import adsk.core
 import adsk.cam
 
 from . import (compat, config, diagnostics, library, marks, presets,
-               state, versions)
+               settings, state, versions)
 
 
 def _users(vector):
@@ -279,7 +279,7 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing):
 
         absent = presets.missing(tool, library_tool)
         if absent:
-            allowed = writing and config.MAY_SYNC_PRESETS
+            allowed = writing and settings.on("presets")
             names = [presets.latest_name(p.name, p.version) for p in absent]
             if not allowed:
                 report.note("would bring in presets this document has not seen",
@@ -313,7 +313,7 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing):
                         failures=report.failures,
                         would_have_removed=[n for _i, n, _v in spare])
             continue
-        allowed = writing and config.MAY_TIDY_PRESETS
+        allowed = writing and settings.on("tidy")
         if not allowed:
             report.note("would remove copies nothing uses any more",
                         tool=library_tool.description,
@@ -376,7 +376,7 @@ def _ensure_presets(cam, decided, tools, report, writing):
     if not wanted:
         return wrote
 
-    allowed = writing and config.MAY_ADD_PRESETS
+    allowed = writing and settings.on("presets")
     shelf = _document_tools(cam)
     for tool_id, library_preset in wanted.values():
         tool = shelf.get(tool_id)
@@ -495,11 +495,11 @@ def remove_marks(app):
                                   % getattr(owner, "name", "?"))
                 if looked % config.OPERATIONS_PER_CHUNK == 0:
                     adsk.doEvents()
-        set_left_alone(document, True, report)
+        _forget_leave_alone(document, report)
         report.note("unmarked", looked_at=looked, cleared=cleared,
                     presets="left alone; an operation may be using one")
         return (report.close(), {"cleared": cleared},
-                config.UNMARKED % (cleared, looked) + config.UNMARK_TAIL)
+                config.UNMARKED % (cleared, looked))
     except Exception:
         report.failed("unmarking stopped early")
         return report.close(), {}, config.STOPPED_EARLY
@@ -532,38 +532,25 @@ def _flag_store(document):
     return stores
 
 
-def left_alone(document):
-    """Whether this document has asked not to be marked."""
-    for store in _flag_store(document):
-        try:
-            if store.itemByName(config.ATTRIBUTE_GROUP,
-                                config.KEY_LEAVE_ALONE):
-                return True
-        except Exception:
-            continue
-    return False
+def _forget_leave_alone(document, report=None):
+    """Take out the flag that removing the marks used to write.
 
-
-def set_left_alone(document, on, report=None):
-    """Ask for this document to be left alone, or stop asking."""
+    Only ever deletes now. Documents marked by 0.8.0 to 0.8.5 may be carrying
+    one, and an attribute nothing reads is exactly the sort of thing an add-in
+    should not leave behind in somebody's job.
+    """
     done = False
     for store in _flag_store(document):
         try:
             found = store.itemByName(config.ATTRIBUTE_GROUP,
                                      config.KEY_LEAVE_ALONE)
-            if on and found is None:
-                store.add(config.ATTRIBUTE_GROUP, config.KEY_LEAVE_ALONE,
-                          "yes")
-                done = True
-                break
-            if not on and found is not None:
+            if found is not None:
                 found.deleteMe()
                 done = True
         except Exception:
             continue
-    if report is not None:
-        report.note("left alone" if on else "marking this document again",
-                    stored=done)
+    if report is not None and done:
+        report.note("took out an old leave-alone flag")
     return done
 
 
@@ -722,7 +709,8 @@ def run(app, allow_writing=True):
 
         # allow_writing is how "check without changing anything" works: the
         # same pass, deciding everything and writing none of it.
-        writing = (allow_writing and config.MAY_WRITE_ON_DEMAND
+        writing = (allow_writing and settings.on("on")
+                   and config.MAY_WRITE_ON_DEMAND
                    and _writable(document, report))
         # A file written by a newer add-in is read and reported on, never
         # changed: its rules are not this version's to second-guess.
@@ -732,9 +720,6 @@ def run(app, allow_writing=True):
             report.note("NOT WRITING", reason=refusal)
             writing = False
         report.writing = writing
-        if writing and left_alone(document):
-            # Pressing check is asking for it, so it stops being left alone.
-            set_left_alone(document, False, report)
         if writing:
             # Pressing the button is how a document joins the system, which is
             # what lets later edits and saves write to it.

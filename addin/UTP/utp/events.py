@@ -19,7 +19,7 @@ speed asks for, arrived at from a different direction.
 import adsk.core
 import adsk.cam
 
-from . import compat, config, diagnostics, library, marks, state
+from . import compat, config, diagnostics, library, marks, settings, state
 
 _handlers = []
 _running = {"undo": False}
@@ -71,16 +71,19 @@ def joined(document):
         _in_the_system.add(found)
 
 
-def _may_write(document, operations=()):
-    """Whether an event is allowed to write to this document."""
+def _may_write(document, operations=(), trigger="save"):
+    """Whether an event is allowed to write to this document.
+
+    The trigger says which switch to look at: somebody may want their saves
+    checked but not want notes moving under them as they edit, or the other
+    way about.
+    """
+    if not settings.on("on"):
+        return False, "the add-in is switched off"
+    if not settings.on(trigger):
+        return False, "checking when I %s is switched off" % trigger
     if not config.MAY_WRITE_ON_EVENTS:
         return False, "writing on events is switched off"
-    from . import passes
-    if passes.left_alone(document):
-        # Its marks were taken out on purpose. Putting them back on the next
-        # save is what made removing them pointless.
-        return False, ("this document asked to be left alone when its marks "
-                       "were removed; the check button undoes that")
     understood, refusal = compat.may_write(compat.survey(operations))
     if not understood:
         return False, refusal
@@ -124,6 +127,11 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
             operation = getattr(args, "operationbase", None)
             if operation is None:
                 return
+            if not (settings.on("on") and settings.on("edit")):
+                # Out before reading anything. _may_write would refuse this
+                # too, but only after reconciling the operation, and an edit
+                # somebody has switched off should cost nothing.
+                return
             name = getattr(operation, "name", "?")
             if marks.busy():
                 # Our own write set this off. Reacting to it would half-repeat
@@ -163,7 +171,7 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
             would = marks.plan(operation, verdict, during_their_edit=True)
             owner, guessed = _document_of(
                 operation, adsk.core.Application.get())
-            allowed, held_back = _may_write(owner, [operation])
+            allowed, held_back = _may_write(owner, [operation], "edit")
             written = None
             if would and allowed:
                 # Written here, inside the person's own command, which is what
@@ -318,6 +326,7 @@ class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
         try:
             _commands.add(str(args.commandId))
             if (config.MARK_BEFORE_SAVE and not marks.busy()
+                    and settings.on("on") and settings.on("save")
                     and not _running["undo"]
                     and any(word in str(args.commandId).lower()
                             for word in config.SAVE_COMMANDS)):

@@ -98,14 +98,24 @@ of your edit would stall Fusion for several seconds. Saving reads them and
 catches the whole document up, and everything after that is marked as it
 happens.</p>
 
-<h2>If you do not want the notes</h2>
-<p>Press <em>Remove all notes</em> in the UTP panel. That takes every note
-and colour out, and the job is then left alone: saving and editing will not
-put them back. Press <em>Check this document</em> when you want it marked
-again.</p>
-<p>Or just <strong>clear the text of a note</strong> you do not want. It
-stays gone for that operation, and nothing puts it back. <em>Check this
-document</em> brings it back if you change your mind.</p>
+<h2>Turning it off</h2>
+<p>Press <em>Switches</em> in the UTP panel. There is a checkbox for each of
+the two times it runs, one for the notes themselves, two for the presets, and
+one at the top for the whole add-in. Off means off: nothing happens on its
+own, and the buttons that change things say so instead of doing it.</p>
+<p>Those are for your machine, not for the document, and they stay how you
+set them until you change them.</p>
+
+<h2>If you do not want a particular note</h2>
+<p><strong>Clear its text.</strong> Nothing will put it back while you are
+still editing, so you can get it out of your way.</p>
+<p>It does come back on the next save, and that is on purpose: a note says
+where the operation stands, so saving works it out again like everything
+else. To stop the notes altogether, use <em>Switches</em>.</p>
+<p><em>Remove all notes</em> takes every note and colour out of the whole
+document at once. Same thing applies: saving or checking works them out
+again, so turn the notes off under <em>Switches</em> first if you want them
+to stay gone.</p>
 
 <h2>Worth knowing</h2>
 <ul>

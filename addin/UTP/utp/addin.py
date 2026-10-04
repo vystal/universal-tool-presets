@@ -33,26 +33,30 @@ def loaded_from():
 # ---------------------------------------------------------------------------
 
 class _Created(adsk.core.CommandCreatedEventHandler):
-    def __init__(self, work, confirm=None):
+    def __init__(self, work, confirm=None, ask=None):
         super().__init__()
-        self.work, self.confirm = work, confirm
+        self.work, self.confirm, self.ask = work, confirm, ask
 
     def notify(self, args):
         try:
-            run = _Execute(self.work, self.confirm)
+            run = _Execute(self.work, self.confirm, self.ask)
             args.command.execute.add(run)
             _handlers.append(run)
-            # Nothing to configure, so skip the OK/Cancel dialog and just do
-            # it. Anything that needs asking asks for itself.
-            args.command.isAutoExecute = True
+            if self.ask is None:
+                # Nothing to configure, so skip the OK/Cancel dialog and just
+                # do it. Anything that needs asking asks for itself.
+                args.command.isAutoExecute = True
+            else:
+                self.ask(args.command.commandInputs)
+                args.command.isAutoExecute = False
         except Exception:
             _report_failure("preparing a command")
 
 
 class _Execute(adsk.core.CommandEventHandler):
-    def __init__(self, work, confirm=None):
+    def __init__(self, work, confirm=None, ask=None):
         super().__init__()
-        self.work, self.confirm = work, confirm
+        self.work, self.confirm, self.ask = work, confirm, ask
 
     def notify(self, args):
         app = adsk.core.Application.get()
@@ -63,7 +67,10 @@ class _Execute(adsk.core.CommandEventHandler):
                     adsk.core.MessageBoxButtonTypes.YesNoButtonType)
                 if answer != adsk.core.DialogResults.DialogYes:
                     return
-            message, path = self.work(app)
+            if self.ask is None:
+                message, path = self.work(app)
+            else:
+                message, path = self.work(app, args.command.commandInputs)
             if message:
                 _say(app, message, path)
         except Exception:
@@ -90,7 +97,15 @@ def _report_failure(what):
 # ---------------------------------------------------------------------------
 
 def _check(app):
-    from . import passes
+    from . import passes, settings
+    # Which switch stopped it, rather than running and quietly changing
+    # nothing. Remove all notes is deliberately not guarded this way:
+    # switching the add-in off and then taking its notes out is how somebody
+    # stops using it, and a guard there would trap them.
+    if not settings.on("on"):
+        return config.IS_OFF, None
+    if not settings.on("mark"):
+        return config.MARKING_OFF, None
     path, _counts, message = passes.run(app)
     return message, path and ("Report:\n%s" % path)
 
@@ -134,16 +149,39 @@ def _folder(app):
         return "The reports folder could not be opened.", config.REPORT_DIR
 
 
-def _switches(app):
-    names = [n for n in sorted(dir(config))
-             if n.startswith("MAY_") or n in ("LISTEN_TO_EVENTS",
-                                              "ONLY_DOCUMENTS_ALREADY_MARKED",
-                                              "SHOW_PROGRESS")]
-    lines = ["%s   %s" % ("yes" if getattr(config, name) else " no", name)
-             for name in names]
-    lines += ["", "version %s, schema %d" % (version.VERSION, config.SCHEMA),
-              "running from %s" % (loaded_from() or "in place")]
-    return "What this add-in is allowed to do:\n\n" + "\n".join(lines), None
+def _ask_switches(inputs):
+    """The only command with a dialog: checkboxes for what it may do.
+
+    It used to print the switches and leave you to edit config.py, which is
+    no use to anybody who did not write it. Same button, same list, now you
+    can change it.
+    """
+    from . import settings
+    held = settings.values()
+    boxes = {None: inputs}
+    for key, title in settings.GROUPS:
+        group = inputs.addGroupCommandInput("utp_" + key, title)
+        group.isExpanded = True
+        boxes[key] = group.children
+    for key, label, group, _switch in settings.CONTROLS:
+        box = boxes[group].addBoolValueInput(
+            "utp_" + key, label, True, "", held[key])
+        box.tooltip = settings.MEANS.get(key, "")
+    inputs.addTextBoxCommandInput(
+        "utp_footer", "", config.SWITCHES_FOOTER, 2, True)
+
+
+def _switches(app, inputs):
+    from . import settings
+    chosen = {}
+    for key, _label, _group, _switch in settings.CONTROLS:
+        found = inputs.itemById("utp_" + key)
+        if found is not None:
+            chosen[key] = found.value
+    changed = settings.save(chosen)
+    if not changed:
+        return config.SWITCHES_UNCHANGED, None
+    return config.SWITCHES_SAVED % "\n".join(changed), None
 
 
 def _help(app):
@@ -170,21 +208,21 @@ def _debug(app):
 # most first, instructions last.
 COMMANDS = [
     (config.COMMAND_ID, config.COMMAND_NAME, config.COMMAND_TOOLTIP,
-     _check, None),
+     _check, None, None),
     (config.DRY_COMMAND_ID, config.DRY_COMMAND_NAME,
-     config.DRY_COMMAND_TOOLTIP, _check_only, None),
+     config.DRY_COMMAND_TOOLTIP, _check_only, None, None),
     (config.REFRESH_COMMAND_ID, config.REFRESH_COMMAND_NAME,
-     config.REFRESH_COMMAND_TOOLTIP, _refresh, None),
+     config.REFRESH_COMMAND_TOOLTIP, _refresh, None, None),
     (config.UNMARK_COMMAND_ID, config.UNMARK_COMMAND_NAME,
-     config.UNMARK_COMMAND_TOOLTIP, _unmark, config.UNMARK_CONFIRM),
-    (config.FOLDER_COMMAND_ID, config.FOLDER_COMMAND_NAME,
-     config.FOLDER_COMMAND_TOOLTIP, _folder, None),
+     config.UNMARK_COMMAND_TOOLTIP, _unmark, config.UNMARK_CONFIRM, None),
     (config.SWITCHES_COMMAND_ID, config.SWITCHES_COMMAND_NAME,
-     config.SWITCHES_COMMAND_TOOLTIP, _switches, None),
+     config.SWITCHES_COMMAND_TOOLTIP, _switches, None, _ask_switches),
+    (config.FOLDER_COMMAND_ID, config.FOLDER_COMMAND_NAME,
+     config.FOLDER_COMMAND_TOOLTIP, _folder, None, None),
     (config.DEBUG_COMMAND_ID, config.DEBUG_COMMAND_NAME,
-     config.DEBUG_COMMAND_TOOLTIP, _debug, None),
+     config.DEBUG_COMMAND_TOOLTIP, _debug, None, None),
     (config.HELP_COMMAND_ID, config.HELP_COMMAND_NAME,
-     config.HELP_COMMAND_TOOLTIP, _help, None),
+     config.HELP_COMMAND_TOOLTIP, _help, None, None),
 ]
 
 
@@ -249,16 +287,18 @@ def _fallback_panel(ui):
 def start(app, loaded_from_path=None):
     ui = app.userInterface
     _state["loaded_from"] = loaded_from_path
+    from . import settings
+    settings.forget()
     try:
         definitions = ui.commandDefinitions
         built = []
-        for command_id, name, tooltip, work, confirm in COMMANDS:
+        for command_id, name, tooltip, work, confirm, ask in COMMANDS:
             existing = definitions.itemById(command_id)
             if existing:
                 existing.deleteMe()
             definition = definitions.addButtonDefinition(
                 command_id, name, tooltip)
-            created = _Created(work, confirm)
+            created = _Created(work, confirm, ask)
             definition.commandCreated.add(created)
             _handlers.append(created)
             built.append(definition)
@@ -306,7 +346,7 @@ def shutdown(app):
             except Exception:
                 pass
         _state["panel"] = None
-        for command_id, _name, _tip, _work, _confirm in COMMANDS:
+        for command_id, _name, _tip, _work, _confirm, _ask in COMMANDS:
             definition = ui.commandDefinitions.itemById(command_id)
             if definition:
                 definition.deleteMe()

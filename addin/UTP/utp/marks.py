@@ -12,7 +12,7 @@ breaks and all.
 import json
 import time
 
-from . import config, state
+from . import config, settings, state
 
 
 def _named(verdict, version):
@@ -73,8 +73,10 @@ def setup_line(counts):
 
 def setup_plan(setup, counts):
     """What would change on a setup. Empty means nothing to do."""
-    line, colour = setup_line(counts)
     changes = {}
+    if not settings.on("mark"):
+        return changes
+    line, colour = setup_line(counts)
     existing = _notes(setup)
     wanted = merge(existing, line)
     if wanted != (existing or ""):
@@ -142,6 +144,11 @@ def plan(operation, verdict, during_their_edit=False):
     re-running after a crash harmless.
     """
     changes = {}
+    if not settings.on("mark"):
+        # Switched off: it still reads and reports, and writes nothing to an
+        # operation at all. Records included, because an invisible attribute
+        # is still a write to somebody who asked for none.
+        return changes
     existing = _notes(operation)
     line = note_line(verdict)
 
