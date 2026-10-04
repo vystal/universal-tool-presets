@@ -166,7 +166,11 @@ def _ask_switches(inputs):
     for key, label, group, _switch in settings.CONTROLS:
         box = boxes[group].addBoolValueInput(
             "utp_" + key, label, True, "", held[key])
-        box.tooltip = settings.MEANS.get(key, "")
+        # The label is two or three words, so the sentence saying what it
+        # actually does goes here: tooltip is the heading Fusion shows in
+        # bold, tooltipDescription the paragraph under it.
+        box.tooltip = label
+        box.tooltipDescription = settings.MEANS.get(key, "")
     inputs.addTextBoxCommandInput(
         "utp_footer", "", config.SWITCHES_FOOTER, 2, True)
 
