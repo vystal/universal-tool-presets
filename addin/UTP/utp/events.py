@@ -157,10 +157,10 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
             if not ok:
                 return
             verdict = state.reconcile(operation, tools)
-            # The only place a note may be declined: this runs inside the
-            # person's own edit, so a line of ours that has gone was taken
-            # out by them.
-            would = marks.plan(operation, verdict, may_decline=True)
+            # The only place a cleared note is left cleared: this runs inside
+            # the person's own edit, so a line of ours that has gone was
+            # taken out by them, a moment ago.
+            would = marks.plan(operation, verdict, during_their_edit=True)
             owner, guessed = _document_of(
                 operation, adsk.core.Application.get())
             allowed, held_back = _may_write(owner, [operation])
@@ -205,8 +205,8 @@ def mark_document(document, why):
     planned = wrote = failed = 0
     seen = {}
     # What it did, named. A count said "wrote: 1" whether that was a note
-    # somebody would see or a record saying they had declined one, which
-    # made working behaviour and broken behaviour look identical.
+    # somebody would see or a record nobody would, which made working
+    # behaviour and broken behaviour look identical.
     did = []
     for index, operation in enumerate(all_operations):
         verdict = state.reconcile(operation, tools, seen)

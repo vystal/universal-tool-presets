@@ -134,30 +134,7 @@ def _ours_in(existing):
                for line in (existing or "").splitlines())
 
 
-def declined(owner):
-    """Whether somebody has said they do not want a note on this one."""
-    try:
-        record = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
-                                             config.KEY_RECORD)
-        if record is not None:
-            return json.loads(record.value).get("n") == 0
-    except Exception:
-        pass
-    return False
-
-
-def _held_record(owner):
-    try:
-        record = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
-                                             config.KEY_RECORD)
-        if record is not None:
-            return json.loads(record.value)
-    except Exception:
-        pass
-    return {}
-
-
-def plan(operation, verdict, honour_declines=True, may_decline=False):
+def plan(operation, verdict, during_their_edit=False):
     """What would change on this operation. Empty means nothing to do.
 
     Idempotent by construction: it compares against what is there now, so a
@@ -168,27 +145,15 @@ def plan(operation, verdict, honour_declines=True, may_decline=False):
     existing = _notes(operation)
     line = note_line(verdict)
 
-    if honour_declines and declined(operation):
-        # They cleared it once. Not putting it back is the whole point.
-        return changes
-
-    if (may_decline and line and verdict.get("record")
+    if (during_their_edit and line and verdict.get("record")
             and not _ours_in(existing)):
-        # Our line is gone from an operation we had written one on, and this
-        # is the handler that runs during somebody's own edit, so they are
-        # the ones who took it out. Clearing a note raises the same event as
-        # any other edit, so without this the line was back within
-        # milliseconds of being deleted.
+        # They have just cleared our line, and clearing a note raises the
+        # same event as any other edit, so putting it straight back meant it
+        # could not be deleted at all. Left alone for now.
         #
-        # Only here. A pass over a whole document also finds operations with
-        # a record and no line, for every other reason a note can go missing,
-        # and deciding those were declined would quietly stop marking them.
-        held = _held_record(operation)
-        held["n"] = 0
-        changes["record"] = held
-        was = _was_icon(operation)
-        if was and _icon(operation) != was:
-            changes["icon"] = {"from": _icon(operation), "to": was}
+        # Not for ever: the note says where the operation stands, so the next
+        # save works it out and writes it again. Only the fight in the moment
+        # was the problem.
         return changes
 
     wanted = merge(existing, line)
@@ -202,13 +167,7 @@ def plan(operation, verdict, honour_declines=True, may_decline=False):
             changes["icon"] = {"from": now, "to": colour}
 
     wanted_record = record(verdict)
-    if wanted_record and declined(operation) and not honour_declines:
-        # Pressing check is asking for the notes back.
-        held = _held_record(operation)
-        held.pop("n", None)
-        held.update(wanted_record)
-        changes["record"] = held
-    elif wanted_record and not verdict.get("record"):
+    if wanted_record and not verdict.get("record"):
         # What the icon was before any of this, so unmarking can put it
         # back. A note's own text is kept carefully and a colour somebody
         # chose deliberately was simply overwritten, which is inconsistent.
@@ -218,7 +177,6 @@ def plan(operation, verdict, honour_declines=True, may_decline=False):
         changes["record"] = wanted_record
 
     return changes
-
 
 
 _writing = {"depth": 0}
@@ -386,8 +344,7 @@ def describe(changes):
         parts.append("icon %s -> %s" % (changes["icon"]["from"] or "none",
                                         changes["icon"]["to"]))
     if "record" in changes:
-        parts.append("declined, note left off"
-                     if changes["record"].get("n") == 0 else "adopt")
+        parts.append("adopt")
     return ", ".join(parts) or "nothing"
 
 
