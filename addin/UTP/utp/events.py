@@ -25,6 +25,16 @@ _handlers = []
 _running = {"undo": False}
 _state = {}
 
+# Every command id this session has raised. Only for the debug report: the
+# save command is matched on a substring because its exact id differs
+# between builds, and this is how the real one gets found rather than
+# guessed at.
+_commands = set()
+
+
+def seen_commands():
+    return _commands
+
 # Documents the button has been pressed in, by name. The rollout guard uses
 # this so an edit or a save cannot start marking a document nobody asked it
 # to. Held in memory only: a restart means pressing the button again, which is
@@ -166,12 +176,59 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
             diagnostics.session_log("edit handler failed", error=str(exc))
 
 
+def mark_document(document, why):
+    """Bring a whole document up to date. Used before a save, and by it.
+
+    Shared so that marking can happen before Fusion starts saving, where
+    what it writes becomes part of that save, rather than during, where it
+    lands after the snapshot and leaves the file dirty again.
+    """
+    from . import passes
+    report = _Quiet()
+    tools, ok = library.cached(report)
+    if not ok:
+        diagnostics.session_log("%s: nothing decided" % why,
+                                reason="the Hub libraries could not be read")
+        return 0
+    all_operations = list(passes.operations_of(document))
+    allowed, held_back = _may_write(document, all_operations)
+    counts = {}
+    planned = wrote = failed = 0
+    seen = {}
+    for index, operation in enumerate(all_operations):
+        verdict = state.reconcile(operation, tools, seen)
+        counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
+        would = marks.plan(operation, verdict)
+        if not would:
+            continue
+        planned += 1
+        if not allowed:
+            continue
+        try:
+            marks.apply(operation, would)
+            wrote += 1
+            adsk.doEvents()
+        except Exception:
+            failed += 1
+        if index % config.OPERATIONS_PER_CHUNK == 0:
+            adsk.doEvents()
+    diagnostics.session_log(
+        why, document=getattr(document, "name", "?"), verdicts=counts,
+        would_mark=planned, wrote=wrote, failed=failed or None,
+        held_back=held_back)
+    return wrote
+
+
 class _DocumentSaving(adsk.core.DocumentEventHandler):
     """The backlog, at the one moment a pass of any size is safe."""
 
     def notify(self, args):
         try:
             document = getattr(args, "document", None)
+            if config.MARK_BEFORE_SAVE:
+                # Already done, before this save began. Doing it here would
+                # land after Fusion's snapshot and dirty the file again.
+                return
             from . import passes
             report = _Quiet()
             tools, ok = library.cached(report)
@@ -233,7 +290,10 @@ class _DocumentSaved(adsk.core.DocumentEventHandler):
             diagnostics.session_log(
                 "saved", document=getattr(document, "name", "?"),
                 modified_again=getattr(document, "isModified", "unknown"),
-                wrote_during_the_save=_state.pop("wrote_during_save", 0))
+                wrote_before_the_save=_state.pop("wrote_before_save", 0),
+                wrote_during_the_save=_state.pop("wrote_during_save", 0),
+                note="modified_again here can read false before Fusion has "
+                     "settled the flag; what the title bar says is the truth")
         except Exception:
             pass
 
@@ -241,6 +301,14 @@ class _DocumentSaved(adsk.core.DocumentEventHandler):
 class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
     def notify(self, args):
         try:
+            _commands.add(str(args.commandId))
+            if (config.MARK_BEFORE_SAVE and not marks.busy()
+                    and not _running["undo"]
+                    and any(word in str(args.commandId).lower()
+                            for word in config.SAVE_COMMANDS)):
+                app = adsk.core.Application.get()
+                _state["wrote_before_save"] = mark_document(
+                    app.activeDocument, "marking before the save")
             if args.commandId in ("UndoCommand", "RedoCommand"):
                 _running["undo"] = True
                 # Logged so the guard is visible. Without this an undo that

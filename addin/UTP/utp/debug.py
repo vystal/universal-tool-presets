@@ -110,6 +110,16 @@ def _loader():
     return found
 
 
+def _recent_commands():
+    """The command ids this session has seen, so a save can be recognised."""
+    try:
+        from . import events
+        seen = sorted(events.seen_commands())
+        return seen[-40:] or ["none yet"]
+    except Exception as exc:
+        return ["could not be read: %s" % exc]
+
+
 def collect(app):
     """Everything worth knowing, written to one file. Returns its path."""
     from . import addin
@@ -150,6 +160,7 @@ def collect(app):
     section("The open document", _document(app))
     section("Hub libraries", _libraries())
     section("Where a button can go", _panels(app.userInterface))
+    section("Commands seen this session", _recent_commands())
 
     try:
         os.makedirs(config.REPORT_DIR, exist_ok=True)

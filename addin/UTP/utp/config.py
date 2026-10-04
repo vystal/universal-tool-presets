@@ -96,6 +96,23 @@ MAY_SYNC_PRESETS = True
 MAY_TIDY_PRESETS = True
 MAY_BUMP_LIBRARY_VERSIONS = True
 
+# Mark when the Save command starts rather than when the save is under way.
+#
+# documentSaving fires once Fusion has already taken its snapshot, so notes
+# written there land after it and the document is dirty the moment the save
+# finishes: you save, and have to save again. Measured by hand; a check of
+# isModified inside documentSaved says otherwise because the flag has not
+# settled by then, which is a good reason not to trust it.
+#
+# commandStarting fires before the command runs, so what is written there is
+# part of the save that follows.
+MARK_BEFORE_SAVE = True
+
+# What Fusion calls its save commands. Matched as a substring, lowercased,
+# because the exact ids differ between builds and the debug report lists
+# what this one actually raises.
+SAVE_COMMANDS = ("save",)
+
 # Listen to operation edits and saves. Still writes nothing while the switch
 # above is off; it records what it would have done to the session log.
 LISTEN_TO_EVENTS = True
