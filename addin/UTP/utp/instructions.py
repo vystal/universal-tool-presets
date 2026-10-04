@@ -92,6 +92,11 @@ of twenty older operations and one tracked one says <em>1 tracked</em>.</p>
 <h2>When it runs</h2>
 <p>When you save a document, and when you change an operation. Nothing on
 opening a file, and nothing in the background.</p>
+<p>The first change you make after starting Fusion is not marked straight
+away: it has to read the shop libraries first, and doing that in the middle
+of your edit would stall Fusion for several seconds. Saving reads them and
+catches the whole document up, and everything after that is marked as it
+happens.</p>
 
 <h2>Worth knowing</h2>
 <ul>

@@ -123,11 +123,19 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
                 return
             if not library.warm():
                 # Never read the Hub from inside somebody's command: it takes
-                # seconds and would look like Fusion hanging.
+                # between three and eight seconds and would look like Fusion
+                # hanging, in the middle of their own edit.
+                #
+                # So the first edit of a session decides nothing. Saving
+                # reads the libraries and catches the whole document up, and
+                # so does the check button, and after either of those every
+                # edit is decided as it happens.
                 diagnostics.session_log(
                     "edit seen, nothing decided", operation=name,
-                    reason="the libraries have not been read yet this session; "
-                           "press the check button once to warm them")
+                    reason="the libraries have not been read yet this "
+                           "session, and reading them inside an edit would "
+                           "stall Fusion for seconds",
+                    caught_up_by="saving, or the check button")
                 return
             tools, ok = library.cached(_Quiet())
             if not ok:
