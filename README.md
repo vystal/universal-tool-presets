@@ -127,6 +127,11 @@ being deleted: there was no way to be rid of one. The record now carries a
 note saying this one was declined, every pass honours it, and pressing
 **Check this document** clears it because that is asking for the notes.
 
+Only the edit handler may decide a note was declined, because that is the one
+that runs inside somebody's own edit. A pass over a whole document also finds
+operations with a record and no note, for every other reason a note can go
+missing, and treating those as declined would quietly stop marking them.
+
 ## Switches
 
 All in `addin/UTP/utp/config.py`.

@@ -157,7 +157,10 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
             if not ok:
                 return
             verdict = state.reconcile(operation, tools)
-            would = marks.plan(operation, verdict)
+            # The only place a note may be declined: this runs inside the
+            # person's own edit, so a line of ours that has gone was taken
+            # out by them.
+            would = marks.plan(operation, verdict, may_decline=True)
             owner, guessed = _document_of(
                 operation, adsk.core.Application.get())
             allowed, held_back = _may_write(owner, [operation])

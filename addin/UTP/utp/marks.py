@@ -157,7 +157,7 @@ def _held_record(owner):
     return {}
 
 
-def plan(operation, verdict, honour_declines=True):
+def plan(operation, verdict, honour_declines=True, may_decline=False):
     """What would change on this operation. Empty means nothing to do.
 
     Idempotent by construction: it compares against what is there now, so a
@@ -172,12 +172,17 @@ def plan(operation, verdict, honour_declines=True):
         # They cleared it once. Not putting it back is the whole point.
         return changes
 
-    if (honour_declines and line and verdict.get("record")
+    if (may_decline and line and verdict.get("record")
             and not _ours_in(existing)):
-        # We had written a line here and it is gone, so somebody took it
-        # out. Clearing a note fires the same event as any other edit, so
-        # without this the line was back within milliseconds of being
-        # deleted and could not be got rid of at all.
+        # Our line is gone from an operation we had written one on, and this
+        # is the handler that runs during somebody's own edit, so they are
+        # the ones who took it out. Clearing a note raises the same event as
+        # any other edit, so without this the line was back within
+        # milliseconds of being deleted.
+        #
+        # Only here. A pass over a whole document also finds operations with
+        # a record and no line, for every other reason a note can go missing,
+        # and deciding those were declined would quietly stop marking them.
         held = _held_record(operation)
         held["n"] = 0
         changes["record"] = held
