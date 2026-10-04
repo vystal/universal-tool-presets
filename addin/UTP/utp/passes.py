@@ -495,13 +495,76 @@ def remove_marks(app):
                                   % getattr(owner, "name", "?"))
                 if looked % config.OPERATIONS_PER_CHUNK == 0:
                     adsk.doEvents()
+        set_left_alone(document, True, report)
         report.note("unmarked", looked_at=looked, cleared=cleared,
                     presets="left alone; an operation may be using one")
         return (report.close(), {"cleared": cleared},
-                config.UNMARKED % (cleared, looked))
+                config.UNMARKED % (cleared, looked) + config.UNMARK_TAIL)
     except Exception:
         report.failed("unmarking stopped early")
         return report.close(), {}, config.STOPPED_EARLY
+
+
+def _flag_store(document):
+    """Somewhere on the document to keep a flag that travels with the file.
+
+    Tried in order rather than assumed: a Document has no attributes of its
+    own, and which of these a build offers has not been worth guessing at
+    after the week this has had. Whichever answers first is used, and all of
+    them are read, so a flag written by one build is found by another.
+    """
+    stores = []
+    try:
+        design = document.products.itemByProductType("DesignProductType")
+        if design is not None:
+            stores.append(design.rootComponent.attributes)
+    except Exception:
+        pass
+    try:
+        cam = document.products.itemByProductType("CAMProductType")
+        if cam is not None:
+            if getattr(cam, "attributes", None) is not None:
+                stores.append(cam.attributes)
+            if cam.setups.count:
+                stores.append(cam.setups.item(0).attributes)
+    except Exception:
+        pass
+    return stores
+
+
+def left_alone(document):
+    """Whether this document has asked not to be marked."""
+    for store in _flag_store(document):
+        try:
+            if store.itemByName(config.ATTRIBUTE_GROUP,
+                                config.KEY_LEAVE_ALONE):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def set_left_alone(document, on, report=None):
+    """Ask for this document to be left alone, or stop asking."""
+    done = False
+    for store in _flag_store(document):
+        try:
+            found = store.itemByName(config.ATTRIBUTE_GROUP,
+                                     config.KEY_LEAVE_ALONE)
+            if on and found is None:
+                store.add(config.ATTRIBUTE_GROUP, config.KEY_LEAVE_ALONE,
+                          "yes")
+                done = True
+                break
+            if not on and found is not None:
+                found.deleteMe()
+                done = True
+        except Exception:
+            continue
+    if report is not None:
+        report.note("left alone" if on else "marking this document again",
+                    stored=done)
+    return done
 
 
 def _writable(document, report):
@@ -669,6 +732,9 @@ def run(app, allow_writing=True):
             report.note("NOT WRITING", reason=refusal)
             writing = False
         report.writing = writing
+        if writing and left_alone(document):
+            # Pressing check is asking for it, so it stops being left alone.
+            set_left_alone(document, False, report)
         if writing:
             # Pressing the button is how a document joins the system, which is
             # what lets later edits and saves write to it.

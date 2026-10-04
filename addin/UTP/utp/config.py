@@ -56,6 +56,12 @@ KEY_SCHEMA = "schema"
 # marked.
 SCHEMA = 2
 
+# On the document, saying this one is not to be marked. Set by removing the
+# marks and cleared by deliberately checking the document, so taking the
+# marks out keeps them out: without it the next save put every one of them
+# back, and the way out was not a way out.
+KEY_LEAVE_ALONE = "leaveAlone"
+
 # On a library preset. A label, never a decision: what is behind and what is
 # current is settled by comparing values, with or without these.
 KEY_VERSION = "version"
@@ -269,6 +275,11 @@ NEWER_ADDIN = ("this file was written by a newer UTP add-in (schema %d, this "
 # ---------------------------------------------------------------------------
 # The button
 # ---------------------------------------------------------------------------
+
+LEFT_ALONE = ("This document is being left alone: its marks were removed. "
+              "Press Check this document to mark it again.")
+UNMARK_TAIL = ("\n\nIt will not be marked again by saving or editing. Press "
+               "Check this document when you want it back.")
 
 UNMARKED = ("Removed every UTP mark from %d of %d operations and setups.\n\n"
             "One Ctrl+Z puts them back. Presets were left alone, because an "

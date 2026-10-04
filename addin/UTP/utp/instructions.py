@@ -98,6 +98,14 @@ of your edit would stall Fusion for several seconds. Saving reads them and
 catches the whole document up, and everything after that is marked as it
 happens.</p>
 
+<h2>If you do not want it marking a job</h2>
+<p>Press <em>Remove all marks</em> in the UTP panel. That takes every note
+and colour out, and the job is then left alone: saving and editing will not
+put them back. Press <em>Check this document</em> when you want it marked
+again.</p>
+<p>Deleting a note by hand does not stick. The note describes where the
+operation stands, so the next save works it out again and writes it back.</p>
+
 <h2>Worth knowing</h2>
 <ul>
   <li><strong>Your own notes are kept.</strong> It only owns the line starting

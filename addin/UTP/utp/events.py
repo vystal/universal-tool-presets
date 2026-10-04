@@ -75,6 +75,12 @@ def _may_write(document, operations=()):
     """Whether an event is allowed to write to this document."""
     if not config.MAY_WRITE_ON_EVENTS:
         return False, "writing on events is switched off"
+    from . import passes
+    if passes.left_alone(document):
+        # Its marks were taken out on purpose. Putting them back on the next
+        # save is what made removing them pointless.
+        return False, ("this document asked to be left alone when its marks "
+                       "were removed; the check button undoes that")
     understood, refusal = compat.may_write(compat.survey(operations))
     if not understood:
         return False, refusal

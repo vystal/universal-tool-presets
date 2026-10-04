@@ -109,11 +109,20 @@ text and left alone.
 
 ## Taking it back out
 
-**UTP: remove all marks from this document** removes every note, colour and
-record the add-in has written there. It asks first, lands as one undo step,
-and leaves presets alone — an operation may be sitting on one it added, and
-removing that would re-point the operation at another preset without
-changing its values.
+**Remove all marks** takes every note, colour and record out of a document.
+It asks first, lands as one undo step, and leaves presets alone — an
+operation may be sitting on one it added, and removing that would re-point
+the operation at another preset without changing its values.
+
+It also sets a flag on the document saying leave this one alone, so saving
+and editing do not put the marks straight back. Without that the way out was
+not a way out: the next save re-marked everything, because an operation whose
+values match the library is adopted on sight. **Check this document** clears
+the flag, since pressing it is asking for the marks.
+
+Deleting a note by hand does not stick, and is not meant to: the note
+describes where the operation stands, so it is worked out again on the next
+save.
 
 ## Switches
 
