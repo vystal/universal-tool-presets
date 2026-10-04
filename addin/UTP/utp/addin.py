@@ -20,7 +20,7 @@ import adsk.core
 from . import config, diagnostics, version
 
 _handlers = []
-_state = {"menu": None, "panel": None, "loaded_from": None, "where": None}
+_state = {"panel": None, "loaded_from": None, "where": None}
 
 
 def loaded_from():
@@ -187,8 +187,9 @@ def _own_panel(ui):
     """A panel of this add-in's own, on the Utilities tab if there is one.
 
     Putting a dropdown into one of Fusion's panels nested it inside that
-    panel's own menu, which is not a dropdown of its own. A panel of ours
-    carries our dropdown and nothing else.
+    panel's own menu. Giving our panel a dropdown of its own then meant two
+    things both called UTP, one inside the other. The commands sit in the
+    panel directly.
 
     The tab is matched rather than named, because tab and panel ids differ
     between builds and naming them has been wrong twice. The debug report
@@ -263,20 +264,18 @@ def start(app, loaded_from_path=None):
             panel, where = _fallback_panel(ui)
         _state["where"] = where
         if panel is not None:
-            existing = panel.controls.itemById(config.MENU_ID)
-            if existing:
-                existing.deleteMe()
-            menu = panel.controls.addDropDown(
-                config.MENU_NAME, "", config.MENU_ID)
-            _state["menu"] = menu
-            if menu is not None:
-                for definition in built:
-                    menu.controls.addCommand(definition)
+            # Straight into our own panel. A dropdown inside it meant two
+            # things both called UTP, one nested in the other.
+            for definition in built:
+                existing = panel.controls.itemById(definition.id)
+                if existing:
+                    existing.deleteMe()
+                panel.controls.addCommand(definition)
 
         diagnostics.session_log("started", version=version.VERSION,
                                 loaded_from=loaded_from_path or "in place",
                                 schema=config.SCHEMA, commands=len(built),
-                                menu=where or "nowhere")
+                                panel=where or "nowhere")
         if panel is None:
             ui.messageBox(config.NO_PANEL, config.DIALOG_TITLE)
     except Exception:
@@ -291,14 +290,13 @@ def shutdown(app):
             events.disarm(app)
         except Exception:
             pass
-        # The dropdown first, then the panel it sat in, if that was ours.
-        for key in ("menu", "panel"):
-            if _state.get(key):
-                try:
-                    _state[key].deleteMe()
-                except Exception:
-                    pass
-            _state[key] = None
+        # The panel goes, and its commands with it.
+        if _state.get("panel"):
+            try:
+                _state["panel"].deleteMe()
+            except Exception:
+                pass
+        _state["panel"] = None
         for command_id, _name, _tip, _work, _confirm in COMMANDS:
             definition = ui.commandDefinitions.itemById(command_id)
             if definition:

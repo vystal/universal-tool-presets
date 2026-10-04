@@ -287,10 +287,6 @@ DEBUG_COMMAND_TOOLTIP = ("Writes down everything worth knowing about this "
 
 # Everything lives under one dropdown of its own rather than loose among
 # Fusion's buttons.
-MENU_ID = "UTPMenu"
-MENU_NAME = "UTP"
-MENU_TOOLTIP = "Universal Tool Presets"
-
 # A panel of this add-in's own, rather than squeezing into one of Fusion's.
 # Put into a dropdown inside somebody else's panel it came out nested in
 # their menu, which is not a dropdown of its own.
