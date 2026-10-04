@@ -201,6 +201,10 @@ def mark_document(document, why):
     counts = {}
     planned = wrote = failed = 0
     seen = {}
+    # What it did, named. A count said "wrote: 1" whether that was a note
+    # somebody would see or a record saying they had declined one, which
+    # made working behaviour and broken behaviour look identical.
+    did = []
     for index, operation in enumerate(all_operations):
         verdict = state.reconcile(operation, tools, seen)
         counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
@@ -213,6 +217,8 @@ def mark_document(document, why):
         try:
             marks.apply(operation, would)
             wrote += 1
+            did.append("%s: %s" % (getattr(operation, "name", "?"),
+                                   marks.describe(would)))
             adsk.doEvents()
         except Exception:
             failed += 1
@@ -220,8 +226,8 @@ def mark_document(document, why):
             adsk.doEvents()
     diagnostics.session_log(
         why, document=getattr(document, "name", "?"), verdicts=counts,
-        would_mark=planned, wrote=wrote, failed=failed or None,
-        held_back=held_back)
+        would_mark=planned, wrote=wrote, did=did[:20] or "nothing",
+        failed=failed or None, held_back=held_back)
     return wrote
 
 

@@ -381,8 +381,9 @@ def describe(changes):
         parts.append("icon %s -> %s" % (changes["icon"]["from"] or "none",
                                         changes["icon"]["to"]))
     if "record" in changes:
-        parts.append("adopt")
-    return ", ".join(parts)
+        parts.append("declined, note left off"
+                     if changes["record"].get("n") == 0 else "adopt")
+    return ", ".join(parts) or "nothing"
 
 
 # ---------------------------------------------------------------------------
