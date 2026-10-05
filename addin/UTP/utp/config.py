@@ -479,7 +479,14 @@ ICON_DEFAULT = "Gray"
 
 DIALOG_TITLE = "UTP"
 MARKED = "Marked %d of %d operations."
-MARKED_TAIL = "One Ctrl+Z undoes the lot; the document is not saved."
+# Measured on 6 October, and it was not what this used to say. A check wrote
+# four notes, four records and two setup notes; one undo was executed and the
+# log shows it ran; nothing reverted. The add-in's writes to notes, icon colours
+# and attributes are not in Fusion's undo stack, so telling somebody Ctrl+Z is
+# the way back was telling them something untrue about the one thing they would
+# reach for. Remove all notes is the way back, and it is tested.
+MARKED_TAIL = ("Nothing was saved, so closing without saving leaves the job as "
+               "it was. Remove all notes takes it all back out again.")
 CHECKED = "Checked %d operations. Nothing was changed."
 CHECKED_TAIL = ("Writing is off. %d operations would have been marked; the "
                 "report says exactly how.")
@@ -503,14 +510,14 @@ NEWER_ADDIN = ("this file was written by a newer UTP add-in (schema %d, this "
 # ---------------------------------------------------------------------------
 
 UNMARKED = ("Removed the UTP notes from %d of %d operations and setups.\n\n"
-            "One Ctrl+Z puts them back. Presets were left alone, because an "
-            "operation may be using one.\n\nSaving or checking this document "
+            "Press Check this document to work them out again. Presets were "
+            "left alone, because an operation may be using one.\n\nSaving or checking this document "
             "works the notes out again. To stop that, turn the add-in off "
             "under Switches.")
 READ_ONLY = "This file is read-only, so nothing was changed."
 UNMARK_CONFIRM = ("Remove every UTP note and colour from this "
-                  "document?\n\nPresets are left alone. One Ctrl+Z puts it "
-                  "all back, and the document is not saved.")
+                  "document?\n\nPresets are left alone, and nothing is saved. "
+                  "Check this document works them all out again.")
 
 # ---------------------------------------------------------------------------
 # The buttons
@@ -528,9 +535,9 @@ COMMAND_NAME = "Check this document"
 COMMAND_TOOLTIP = ("Brings this document up to date: notes and colours on every "
                    "operation, and the newer presets added to its dropdowns. "
                    "Writes version numbers to the shop library too, unless you "
-                   "turn that off under Switches. One Ctrl+Z takes the document "
-                   "side back. Use Check without changing anything to look "
-                   "first.")
+                   "turn that off under Switches. Nothing is saved, and Remove "
+                   "all notes takes the document side back out. Use Check "
+                   "without changing anything to look first.")
 
 UNMARK_COMMAND_ID = "UTPRemoveMarks"
 UNMARK_COMMAND_NAME = "Remove all notes"
@@ -617,7 +624,7 @@ The notes on your operations
    no note                              never put on a shop preset
 
 To update a yellow one: open the operation, go to the preset dropdown, pick
-the one ending (latest). The note turns green. Ctrl+Z puts it back.
+the one ending (latest). The note turns green. Ctrl+Z puts the preset back.
 
 If you would rather leave it, leave it. Nothing will chase you.
 

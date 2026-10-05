@@ -440,3 +440,22 @@ def test_an_operation_on_a_preset_that_governs_the_cut_keeps_saying_so():
                                      changesTheCut=["tool_stepdown"]))
     assert config.NOTE_CHANGES_THE_CUT in behind
     assert config.NOTE_SETS_THE_CUT not in behind
+
+
+def test_nothing_promises_an_undo_that_does_not_happen():
+    """Measured on 6 October: a check wrote four notes, four records and two
+    setup notes; one undo was executed and the log confirms it ran; nothing
+    reverted. What this add-in writes to notes, colours and attributes is not in
+    Fusion's undo stack.
+
+    Three screens had been telling people Ctrl+Z was the way back, which is the
+    one thing they would reach for. This pins the wording so it cannot drift
+    back in without somebody re-measuring.
+    """
+    for name in ("MARKED_TAIL", "UNMARKED", "UNMARK_CONFIRM", "COMMAND_TOOLTIP"):
+        said = getattr(config, name)
+        assert "ctrl+z" not in said.lower(), (
+            "%s promises an undo that does not happen: %r" % (name, said))
+    # the way back that does work is offered instead
+    assert "Remove all notes" in config.MARKED_TAIL
+    assert "Check this document" in config.UNMARKED

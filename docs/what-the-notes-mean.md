@@ -80,8 +80,15 @@ you should regenerate the operation before posting. Without that, the toolpath
 keeps the old shape while the numbers are new, and the file looks ready when it
 is not.
 
-**I picked the wrong preset.** Ctrl+Z. The preset and the note go back
-together in one step.
+**I picked the wrong preset.** Ctrl+Z puts the preset back. The note is worked
+out again the next time the operation is looked at, so it catches up on the next
+save.
+
+**I pressed Check and want it all back.** Press *Remove all notes*. Ctrl+Z will
+not do it: measured on 6 October, a check wrote four notes and two setup notes,
+one undo was run, and none of it reverted. What this add-in writes to notes,
+colours and hidden records is not in Fusion's undo stack. Nothing is saved by a
+check either, so closing the job without saving leaves it as it was.
 
 **I wrote my own note on an operation.** It is still there, underneath the
 line wrapped in ` marks. Your text is never touched.

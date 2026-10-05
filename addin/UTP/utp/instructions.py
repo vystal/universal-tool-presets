@@ -84,7 +84,7 @@ by picking a preset.</p>
 <div class="do">
   <strong>To update a yellow one:</strong> open the operation, go to the tool
   preset dropdown, and pick the one ending <strong>(latest)</strong>. The note
-  turns green. Ctrl+Z puts it back.
+  turns green. Ctrl+Z puts the preset back.
 </div>
 
 <p>If you would rather leave it, leave it. Nothing will chase you, and

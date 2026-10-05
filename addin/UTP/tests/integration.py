@@ -576,6 +576,38 @@ def _cut_warning(bench):
     return "PASS", "%d presets carry one and every operation on them says so" % len(carrying)
 
 
+@check("a check's writes are not undoable, which is what the wording says")
+def _not_undoable(bench):
+    """Measures the fact the wording now rests on.
+
+    A check writes outside any command of the person's, so Fusion has nothing to
+    roll back. Three screens used to say "One Ctrl+Z undoes the lot". This is
+    here so that if Fusion ever changes, or somebody finds a way to group these
+    writes into an undo step, we find out and can make the better promise
+    instead of the safe one.
+    """
+    library.forget()
+    passes.remove_marks(bench.app)
+    passes.run(bench.app)
+    before = len([o for o in bench.operations()
+                  if (o.notes or "").startswith(config.NOTE_PREFIX)])
+    if not before:
+        return "SKIP", "the check wrote nothing, so there is nothing to undo"
+    found = bench.app.userInterface.commandDefinitions.itemById("UndoCommand")
+    if found is None:
+        return "SKIP", "no UndoCommand on this build"
+    found.execute()
+    pump(60)
+    after = len([o for o in bench.operations()
+                 if (o.notes or "").startswith(config.NOTE_PREFIX)])
+    if after < before:
+        return "FAIL", ("one undo took %d of %d notes back, so the writes ARE "
+                        "undoable and the wording should say so again"
+                        % (before - after, before))
+    return "PASS", ("%d notes before and after one undo, as the wording assumes"
+                    % before)
+
+
 # ---------------------------------------------------------------------------
 
 def run(app, say):
