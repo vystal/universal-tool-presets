@@ -1,7 +1,7 @@
 # What the notes on your operations mean
 
 Some operations in the Manufacture tree now have a small coloured note beside
-them, starting with `[UTP]`. This is what they are telling you.
+them, wrapped in ` marks. This is what they are telling you.
 
 You do not have to do anything about them. Nothing is blocked, nothing is
 changed behind your back, and an operation with no note is not a problem.
@@ -13,7 +13,7 @@ changed behind your back, and an operation with no note is not a problem.
 ### 🟢 Green — nothing to do
 
 ```
-[UTP] Titanium T48 Roughing v3
+`UTP Titanium T48 Roughing v3`
 ```
 
 This operation is running the shop's current feeds and speeds for that tool.
@@ -22,7 +22,7 @@ The name tells you which set, and `v3` is which version of it.
 ### 🟡 Yellow — there is a newer version
 
 ```
-[UTP] Titanium T48 Roughing v2 · v3 available
+`UTP Titanium T48 Roughing v2 - v3 available`
 ```
 
 Somebody has changed the shop's feeds for that tool since this operation was
@@ -36,7 +36,7 @@ If you would rather leave it alone, leave it alone. Nothing will chase you.
 ### ⚪ Grey — somebody changed this one on purpose
 
 ```
-[UTP] Custom
+`UTP Custom`
 ```
 
 This operation was on a shop preset and its feeds have since been edited in
@@ -58,8 +58,8 @@ A collapsed setup hides its operations, so each setup carries a summary:
 
 | | |
 | --- | --- |
-| 🟡 `[UTP] 2 of 7 need updating` | worth opening up and looking |
-| 🟢 `[UTP] 7 tracked, up to date` | nothing inside needs attention |
+| 🟡 ``UTP 2 of 7 need updating`` | worth opening up and looking |
+| 🟢 ``UTP 7 tracked, up to date`` | nothing inside needs attention |
 | no note | nothing in it is on a shop preset |
 
 The count is only of operations the system is tracking. A setup with twenty
@@ -76,7 +76,7 @@ you picking a preset. The notes and colours are all it writes.
 together in one step.
 
 **I wrote my own note on an operation.** It is still there, underneath the
-`[UTP]` line. Your text is never touched.
+line wrapped in ` marks. Your text is never touched.
 
 **Why does one say `v2` and another just have a name?** The version numbers
 only exist for presets the shop has started tracking. Where there is no

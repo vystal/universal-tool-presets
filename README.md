@@ -15,9 +15,9 @@ either carries a note or it does not.
 
 | Note | Icon | Means |
 | --- | --- | --- |
-| `[UTP] Titanium v3` | green | on the newest version |
-| `[UTP] Titanium v2 · v3 available` | yellow | a newer version exists |
-| `[UTP] Custom` | grey | it was on a UTP and its values have since been changed |
+| ``UTP Titanium v3`` | green | on the newest version |
+| ``UTP Titanium v2 - v3 available`` | yellow | a newer version exists |
+| ``UTP Custom`` | grey | it was on a UTP and its values have since been changed |
 | none | none | never on a UTP, or its tool is not in a shop library |
 
 Files that predate the system stay silent. An operation joins when somebody

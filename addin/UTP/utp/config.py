@@ -54,7 +54,14 @@ KEY_SCHEMA = "schema"
 # 2: the record became one attribute instead of three. Schema 1 files are
 # still read, and rewritten to the new shape when an operation is next
 # marked.
-SCHEMA = 2
+#
+# 3: the add-in's line in a note is encased rather than merely prefixed, so it
+# can be recognised wherever it sits. Raised because an older add-in meeting a
+# note in the new form would not know the line was its own, and would add a
+# second one above it. Standing down is exactly what the number is for. Old
+# "[UTP] " lines are still recognised, so a document marked by an earlier
+# version is rewritten rather than left with two.
+SCHEMA = 3
 
 # Was written on a document by Remove all notes, so a save would not put the
 # notes straight back. The wrong answer twice over: a note says where an
@@ -207,12 +214,39 @@ SETTINGS_FILE = os.path.join(REPORT_DIR, "UTP switches.json")
 # files already carry notes leaves those old lines orphaned, so they would be
 # treated as a person's text and kept. Raise SCHEMA above if you change it.
 
-# The add-in owns the first line of a note; this is how it knows which line.
-NOTE_PREFIX = "[UTP] "
+# The add-in's whole line is encased, opening mark to closing mark:
+#
+#     `UTP Titanium v2 - v3 available`
+#     CHECK Z OFFSET
+#
+# The encasing is what makes the line recognisable, which is what lets every
+# other line in a note be somebody's own words wherever they put them. The
+# first version of this owned any line starting with "[UTP] ", which deleted a
+# note a person had typed in the same style; the second owned only the first
+# line, which still ate one written above.
+#
+# A backtick because a machinist does not type one. The characters that would
+# read more naturally are all taken: an operation's note is emitted into the NC
+# as a comment when a post has showNotes on, measured in group X, and there
+# ( ) delimit the comment itself, [ ] are macro-B brackets on Fanuc controls,
+# # is a macro variable, ; is a comment on Haas and Siemens, and % starts and
+# ends a program. Whether a particular control accepts a backtick in a comment
+# is worth posting one program to find out.
+NOTE_PREFIX = "`UTP "
+NOTE_SUFFIX = "`"
+
+# What the add-in used to open its line with. Still recognised as its own, so
+# a job marked by an earlier version is rewritten in the new style rather than
+# gaining a second line. First line only for this one, which is as far as the
+# old shape can be trusted.
+NOTE_PREFIX_WAS = "[UTP] "
 
 # How a version is shown wherever one appears: in a note and in the dropdown.
 VERSION_LABEL = "%s v%s"
-NOTE_SEPARATOR = "·"
+
+# Plain ASCII, because this goes into the NC as well. A middle dot read nicely
+# on screen and arrived at the control as whatever its codepage made of it.
+NOTE_SEPARATOR = "-"
 NOTE_CUSTOM = "Custom"
 
 # Until version numbers exist there is no "v4" to name, so a behind operation
@@ -380,9 +414,9 @@ It never changes an operation's feeds. Only you do that, by picking a preset.
 
 The notes on your operations
 
-   [UTP] Titanium v3                    green    on the current feeds
-   [UTP] Titanium v2 - v3 available     yellow   something newer exists
-   [UTP] Custom                         grey     its feeds were changed here
+   `UTP Titanium v3`                    green    on the current feeds
+   `UTP Titanium v2 - v3 available`     yellow   something newer exists
+   `UTP Custom`                         grey     its feeds were changed here
    no note                              never put on a shop preset
 
 To update a yellow one: open the operation, go to the preset dropdown, pick
@@ -421,9 +455,9 @@ good, use Switches.
 
 Things worth knowing
 
-Your own notes are kept. It owns the first line only, the one starting
-[UTP]. Write what you like underneath. Do not start your own first line
-with [UTP], because that one it will take as its own.
+Your own notes are kept. It owns only the line wrapped in ` marks. Write
+what you like above or below it, in any words you like, and it stays exactly
+as you typed it.
 Your own icon colours are kept, and put back if you remove the marks.
 Older jobs stay silent. Nothing is marked until somebody uses a shop preset.
 Every check writes a report to the reports folder, saying what it found.

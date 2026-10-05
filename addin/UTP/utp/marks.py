@@ -21,6 +21,15 @@ def _named(verdict, version):
     return config.VERSION_LABEL % (name, version) if version else name
 
 
+def ours(words):
+    """One line of the add-in's, encased so it can be told from anybody else's.
+
+    Every line the add-in writes goes through here, so there is one place that
+    decides what its own line looks like and one rule for recognising it.
+    """
+    return config.NOTE_PREFIX + words + config.NOTE_SUFFIX
+
+
 def note_line(verdict):
     """The one line the add-in owns, or None if it should not be there.
 
@@ -29,19 +38,18 @@ def note_line(verdict):
     """
     kind = verdict["state"]
     if kind == state.CURRENT:
-        return config.NOTE_PREFIX + _named(verdict, verdict.get("libraryVersion"))
+        return ours(_named(verdict, verdict.get("libraryVersion")))
     if kind == state.BEHIND:
         newer = verdict.get("libraryVersion")
         # "v2 - v3 available" when both are known. When the document's own
         # version is not, saying which version is newer is still worth more
         # than saying nothing, so only the second half is dropped.
-        return "%s%s %s %s" % (
-            config.NOTE_PREFIX,
+        return ours("%s %s %s" % (
             _named(verdict, verdict.get("documentVersion")),
             config.NOTE_SEPARATOR,
-            ("v%s available" % newer) if newer else config.NOTE_UPDATE)
+            ("v%s available" % newer) if newer else config.NOTE_UPDATE))
     if kind == state.CUSTOM:
-        return config.NOTE_PREFIX + config.NOTE_CUSTOM
+        return ours(config.NOTE_CUSTOM)
     # not adopted, not a UTP tool, retired: the add-in says nothing at all.
     return None
 
@@ -60,15 +68,13 @@ def setup_line(counts):
     if not tracked:
         return None, None
     if behind:
-        return (config.NOTE_PREFIX + config.SETUP_BEHIND % (behind, tracked),
-                "Yellow")
+        return ours(config.SETUP_BEHIND % (behind, tracked)), "Yellow"
     if custom:
         # Green, because a deliberate override is not a task. The count is
         # still said, so green cannot be read as "everything here is on the
         # shop's presets".
-        return (config.NOTE_PREFIX + config.SETUP_CUSTOM % (tracked, custom),
-                "Green")
-    return config.NOTE_PREFIX + config.SETUP_CLEAN % tracked, "Green"
+        return ours(config.SETUP_CUSTOM % (tracked, custom)), "Green"
+    return ours(config.SETUP_CLEAN % tracked), "Green"
 
 
 def setup_plan(setup, counts):
@@ -95,22 +101,21 @@ def setup_plan(setup, counts):
 def merge(existing, line):
     """The note the add-in would leave behind, ours first and theirs below.
 
-    Only the first line can be ours. It used to be every line starting with
-    the prefix, on the reasoning that a second one "can only have got there
-    from a run that was interrupted" — which overlooked the obvious: a person
-    can type one. Somebody who has learned to read these notes writes
-    "[UTP] check this one by hand before running" on an operation, and the
-    next save replaced their sentence with a version number. Deleting a
-    shop-floor instruction without trace is the worst thing in here.
+    Ours is a line that is encased, wherever in the note it sits. Everything
+    else is somebody's own words and is kept exactly, in the order they put
+    them.
 
-    The add-in always writes its line first, so first-line-only loses nothing
-    it needs. A duplicate left by an interrupted run now survives as their
-    text, which is untidy where the old rule was destructive, and that is the
-    right way round.
+    Two earlier rules got this wrong in the same direction. Owning every line
+    that merely started with "[UTP] " deleted a note a person had typed in the
+    same style, and "[UTP] check this one by hand before running" is exactly
+    the sort of thing somebody who reads these notes would write. Owning only
+    the first line narrowed that to one shape and still ate a line written
+    above the add-in's own. Encasing the line settles it: there is a form only
+    the add-in produces, so there is nothing left to guess about.
     """
     lines = (existing or "").splitlines()
-    theirs = lines[1:] if lines and lines[0].startswith(config.NOTE_PREFIX) \
-        else lines
+    mine = _mine(lines)
+    theirs = [l for index, l in enumerate(lines) if index not in mine]
     if line is None:
         return "\n".join(theirs).strip("\n")
     return "\n".join([line] + theirs).rstrip("\n")
@@ -161,14 +166,35 @@ def _marked_before(owner):
         return False
 
 
-def _ours_in(existing):
-    """Whether the note starts with a line of ours.
+def _mine(lines):
+    """Which lines of a note the add-in wrote, by position.
 
-    First line only, for the same reason merge() owns only the first: a
-    prefixed line further down is somebody's own words.
+    An encased line is the add-in's wherever it sits, which is the whole point
+    of encasing it.
+
+    A bare "[UTP] " line is only considered when there is no encased one in
+    the note at all. Then it was written by a version that had not started
+    encasing yet, and rewriting it is how a document stops carrying the old
+    form. But if the note already holds a line in the current form, the add-in
+    has already said its piece here, so a bare one is somebody's own words and
+    is left alone.
+
+    What cannot be told apart either way is a bare line somebody typed in a
+    note the add-in has never marked. That ambiguity is the whole reason the
+    form changed, and it narrows to nothing as documents are re-marked.
     """
-    lines = (existing or "").splitlines()
-    return bool(lines) and lines[0].startswith(config.NOTE_PREFIX)
+    mine = {index for index, line in enumerate(lines)
+            if line.startswith(config.NOTE_PREFIX)}
+    if mine:
+        return mine
+    if lines and lines[0].startswith(config.NOTE_PREFIX_WAS):
+        return {0}
+    return set()
+
+
+def _ours_in(existing):
+    """Whether a line of ours is in a note at all."""
+    return bool(_mine((existing or "").splitlines()))
 
 
 def plan(operation, verdict, during_their_edit=False):

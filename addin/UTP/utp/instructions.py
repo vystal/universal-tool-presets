@@ -63,12 +63,12 @@ by picking a preset.</p>
 
 <h2>The notes on your operations</h2>
 <table>
-  <tr><td class="note"><span class="dot green"></span>[UTP] Titanium v3</td>
+  <tr><td class="note"><span class="dot green"></span>`UTP Titanium v3`</td>
       <td>On the current feeds. Nothing to do.</td></tr>
-  <tr><td class="note"><span class="dot yellow"></span>[UTP] Titanium v2
-      &middot; v3 available</td>
+  <tr><td class="note"><span class="dot yellow"></span>`UTP Titanium v2
+      - v3 available`</td>
       <td>Something newer exists in the shop library.</td></tr>
-  <tr><td class="note"><span class="dot grey"></span>[UTP] Custom</td>
+  <tr><td class="note"><span class="dot grey"></span>`UTP Custom`</td>
       <td>Its feeds were changed in this document on purpose.</td></tr>
   <tr><td class="note"><span class="dot none"></span>no note</td>
       <td>Never put on a shop preset, or its tool is not a shop tool.</td></tr>
@@ -119,12 +119,11 @@ to stay gone.</p>
 
 <h2>Worth knowing</h2>
 <ul>
-  <li><strong>Your own notes are kept.</strong> It owns the first line only,
-      the one starting <code>[UTP]</code>. Write what you like underneath and
-      it stays exactly as you typed it, blank lines and all. The one thing to
-      avoid is making <em>your</em> first line start with
-      <code>[UTP]</code> &mdash; that one it will take as its own and
-      overwrite.</li>
+  <li><strong>Your own notes are kept.</strong> It owns one line, the one
+      wrapped in <code>`</code> marks. Write what you like above it or below
+      it, in any words you like, and it stays exactly as you typed it, blank
+      lines and all. The backtick is there because it is a character nobody
+      types, so the add-in never has to guess which line is its own.</li>
   <li><strong>Your own icon colours are kept</strong> and put back if the
       marks are removed.</li>
   <li><strong>Older jobs stay silent.</strong> Nothing is marked until
