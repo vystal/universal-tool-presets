@@ -627,18 +627,28 @@ def _within(owner, seen=None):
     anywhere saying they had been missed.
     """
     if seen is None:
-        seen = {"folders": 0, "patterns": 0, "deepest": 0, "loose": 0}
+        seen = _nothing_seen()
     found = []
     for attribute in ("operations", "folders", "patterns"):
         try:
             collection = getattr(owner, attribute)
         except Exception:
+            # A setup that has no patterns at all is not a failure, it is a
+            # setup with no patterns. Only an item that will not come out of
+            # a collection it is listed in counts below.
             continue
         for index in range(collection.count):
             _breathe(index)
             try:
                 item = collection.item(index)
             except Exception:
+                # Counted, because an operation that cannot be read is an
+                # operation nothing is protecting: it is absent from the
+                # verdicts, so the preset it sits on is absent from the set
+                # of presets in use, and the tidy would be free to delete
+                # the preset it is running. Swallowing this silently is what
+                # made the guard against exactly that case unreachable.
+                seen["unreadable"] += 1
                 continue
             if attribute == "operations":
                 found.append(item)
@@ -656,7 +666,7 @@ def _walk(cam):
     One traversal. Counting the shape used to be a second walk of the whole
     document for no reason but to describe it.
     """
-    seen = {"folders": 0, "patterns": 0, "deepest": 0, "loose": 0}
+    seen = _nothing_seen()
     found = []
     try:
         for index in range(cam.setups.count):
@@ -667,13 +677,21 @@ def _walk(cam):
                 pass
             found.extend(_within(setup, seen))
     except Exception:
-        pass
+        # Half the setups may have been walked. Same reasoning as above: an
+        # incomplete walk must not be mistaken for a complete one.
+        seen["unreadable"] += 1
     shape = {"operations found": len(found),
              "folders": seen["folders"],
              "patterns": seen["patterns"],
              "directly under a setup": seen["loose"],
-             "inside a folder or pattern": len(found) - seen["loose"]}
+             "inside a folder or pattern": len(found) - seen["loose"],
+             "could not be read": seen["unreadable"]}
     return found, shape
+
+
+def _nothing_seen():
+    return {"folders": 0, "patterns": 0, "deepest": 0, "loose": 0,
+            "unreadable": 0}
 
 
 def run(app, allow_writing=True):
@@ -706,6 +724,14 @@ def run(app, allow_writing=True):
         # Walked once. The schema survey and the shape of the tree used to
         # traverse the whole document again each, for nothing but to read it.
         operations, shape = _walk(cam)
+        if shape["could not be read"]:
+            # Said as a failure, not a note, because that is what the tidy
+            # consults before it deletes anything. An operation missing from
+            # this walk is missing from the set of presets in use, and a
+            # preset wrongly thought spare is one an operation is running.
+            report.failed("could not read %d thing(s) in the operation tree, "
+                          "so nothing will be removed in this pass"
+                          % shape["could not be read"])
 
         # allow_writing is how "check without changing anything" works: the
         # same pass, deciding everything and writing none of it.
