@@ -87,15 +87,17 @@ MAY_WRITE_ON_EVENTS = True      # edits and saves keep a document honest
 # add-in wait for a deliberate press in each document again.
 ONLY_DOCUMENTS_ALREADY_MARKED = False
 
-# Adding presets to a document's tool library. A bigger write than a note:
-# presets are what operations read their feeds from. Off until the reports
-# from real files say the additions are right.
+# Adding presets to a document's tool library, and bringing in presets a tool
+# has in the shop library that this document has never seen, so a UTP added at
+# the shop can be picked in an existing job without re-selecting the tool. A
+# bigger write than a note: presets are what operations read their feeds from.
+#
+# This is only the default now. The switch somebody can actually reach is
+# "Add presets" in the Switches dialog, which covers both. MAY_SYNC_PRESETS
+# used to sit beside this and was left behind when that happened: nothing read
+# it, so turning it off changed nothing, in a file whose header promises one
+# place to change things.
 MAY_ADD_PRESETS = True
-
-# Bring in presets a tool has in the library but this document has never
-# seen, so a UTP added at the shop can be picked in an existing job without
-# re-selecting the tool.
-MAY_SYNC_PRESETS = True
 
 # Remove copies the add-in made that nothing uses any more. The only thing
 # here that deletes anything, so it is narrow: never a preset an operation
@@ -352,14 +354,16 @@ SWITCHES_SAVED = "Switches saved.\n\n%s"
 SWITCHES_UNCHANGED = "Nothing changed."
 SWITCHES_FOOTER = ("These are for this machine, not for the document. They "
                    "stay set until you change them.")
+SWITCHES_DAMAGED = ("The saved switches could not be read, so everything "
+                    "is off. Set them how you want them and press OK.")
 
 # Said by the buttons that write, when the add-in is switched off. Rather than
 # doing nothing and leaving somebody wondering which of the two it was.
 IS_OFF = ("Universal Tool Presets is switched off, so nothing was changed."
           "\n\nTurn it on under Switches.")
-MARKING_OFF = ("Putting notes on operations is switched off, so nothing was "
-               "changed. The report says what it would have done."
-               "\n\nTurn it on under Switches.")
+MARKING_OFF = ("Putting notes on operations is switched off under Switches, "
+               "so no notes or colours were written. The report below says "
+               "what they would have been.")
 
 HELP_COMMAND_ID = "UTPHelp"
 HELP_COMMAND_NAME = "Instructions"

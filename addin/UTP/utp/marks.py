@@ -187,11 +187,17 @@ def plan(operation, verdict, during_their_edit=False):
     existing = _notes(operation)
     line = note_line(verdict)
 
-    if (during_their_edit and line and verdict.get("record")
+    if (during_their_edit and line and _marked_before(operation)
             and not _ours_in(existing)):
         # They have just cleared our line, and clearing a note raises the
         # same event as any other edit, so putting it straight back meant it
         # could not be deleted at all. Left alone for now.
+        #
+        # Asked of the record attribute rather than of the verdict, which
+        # withholds its record whenever the operation has moved to a
+        # different preset. Clearing the note in the same visit to the dialog
+        # as picking the new preset is the likeliest moment of all for this to
+        # happen, and that was the one case where the line came straight back.
         #
         # Not for ever: the note says where the operation stands, so the next
         # save works it out and writes it again. Only the fight in the moment

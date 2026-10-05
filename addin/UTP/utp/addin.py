@@ -104,9 +104,14 @@ def _check(app):
     # stops using it, and a guard there would trap them.
     if not settings.on("on"):
         return config.IS_OFF, None
-    if not settings.on("mark"):
-        return config.MARKING_OFF, None
     path, _counts, message = passes.run(app)
+    if not settings.on("mark"):
+        # The pass still ran, so there is a report saying what it would have
+        # done, and the preset switches still mean what they say. Returning
+        # before the pass made this button a dead end that promised a report
+        # it had not written, and silently refused preset work the Switches
+        # dialog offers as its own control.
+        message = config.MARKING_OFF + "\n\n" + message
     return message, path and ("Report:\n%s" % path)
 
 
@@ -158,6 +163,12 @@ def _ask_switches(inputs):
     """
     from . import settings
     held = settings.values()
+    if settings.damaged["file"]:
+        # Said here because this is where somebody comes to find out, and
+        # pressing OK writes a good file, so the dialog is the cure as well
+        # as the explanation.
+        inputs.addTextBoxCommandInput(
+            "utp_damaged", "", config.SWITCHES_DAMAGED, 2, True)
     boxes = {None: inputs}
     for key, title in settings.GROUPS:
         group = inputs.addGroupCommandInput("utp_" + key, title)

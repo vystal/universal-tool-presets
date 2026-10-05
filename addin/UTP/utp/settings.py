@@ -18,6 +18,7 @@ behaving differently depending on who opened it last.
 
 import json
 import os
+import tempfile
 
 from . import config
 
@@ -101,19 +102,43 @@ def on(key):
     return values().get(key, default(key))
 
 
+damaged = {"file": False}
+
+
 def _read():
     held = {key: default(key) for key, _l, _g, _s in CONTROLS}
+    damaged["file"] = False
+    if not os.path.exists(config.SETTINGS_FILE):
+        # Nobody has chosen anything yet. The defaults are what a fresh
+        # install does, which is everything on.
+        return held
     try:
         with open(config.SETTINGS_FILE, "r", encoding="utf-8") as handle:
             saved = json.load(handle)
+        if not isinstance(saved, dict):
+            raise ValueError("not a set of switches")
         for key in held:
-            if isinstance(saved.get(key), bool):
-                held[key] = saved[key]
+            if key not in saved:
+                # A switch this version has and the file does not, because
+                # the file was written by an older one. Its default stands.
+                continue
+            if not isinstance(saved[key], bool):
+                # Something is there and it is not true or false. 0 probably
+                # means off and "false" certainly does, but guessing which
+                # way somebody meant a switch that governs writing to their
+                # jobs is not a thing to be clever about.
+                raise ValueError("%s is not true or false" % key)
+            held[key] = saved[key]
+        return held
     except Exception:
-        # No file yet is the usual reason, and a damaged one should not stop
-        # the add-in loading: the defaults are a working add-in either way.
-        pass
-    return held
+        # There is a file, so somebody chose something, and we cannot read
+        # what. Falling back to the defaults would turn everything back on,
+        # which is the one direction that must not happen by accident: the
+        # person who switched this off is the person it must stay off for.
+        # So nothing happens until they say otherwise, and the add-in says
+        # why rather than looking broken.
+        damaged["file"] = True
+        return {key: False for key, _l, _g, _s in CONTROLS}
 
 
 def save(new):
@@ -123,9 +148,24 @@ def save(new):
             for key, _l, _g, _s in CONTROLS}
     changed = ["%s: %s" % (label, "on" if held[key] else "off")
                for key, label, _g, _s in CONTROLS if held[key] != was.get(key)]
-    os.makedirs(os.path.dirname(config.SETTINGS_FILE), exist_ok=True)
-    with open(config.SETTINGS_FILE, "w", encoding="utf-8") as handle:
-        json.dump(held, handle, indent=2, sort_keys=True)
+    folder = os.path.dirname(config.SETTINGS_FILE)
+    os.makedirs(folder, exist_ok=True)
+    # Written beside the real file and moved into place, so a crash or a full
+    # disk leaves the old switches rather than half a line of JSON. The old
+    # way could produce exactly the damaged file read() now has to refuse,
+    # and this folder sits under Documents, which in a lot of shops is being
+    # synced to the cloud underneath us.
+    handle, temporary = tempfile.mkstemp(dir=folder, suffix=".json")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as out:
+            json.dump(held, out, indent=2, sort_keys=True)
+        os.replace(temporary, config.SETTINGS_FILE)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except Exception:
+            pass
+        raise
     forget()
     return changed
 
@@ -134,6 +174,9 @@ def summary():
     """Lines for a report, saying which are not at their default."""
     held = values()
     lines = []
+    if damaged["file"]:
+        lines.append("THE SWITCHES FILE COULD NOT BE READ, so everything is "
+                     "off until it is set again: " + config.SETTINGS_FILE)
     for key, label, _group, _switch in CONTROLS:
         mark = "" if held[key] == default(key) else "   (changed here)"
         lines.append("%s   %s%s" % ("yes" if held[key] else " no", label, mark))
