@@ -258,7 +258,13 @@ def _sync(source, probe_timeout=_TIMEOUT):
         if installed != available:
             _note("the version file said %s but the code is %s; recorded the "
                   "code" % (available, installed))
-        _note("installed %s" % installed)
+        # Says whether the hash was checked, not only that something arrived.
+        # On a machine being set up for the first time this is the only evidence
+        # that the check happened at all, and evidence nobody can find is not
+        # much better than no check.
+        _note("installed %s (%s)"
+              % (installed, "SHA256 checked" if expected
+                 else "no SHA256 published; unverified"))
         return installed
     except Exception:
         _note("installing failed:\n%s" % traceback.format_exc())

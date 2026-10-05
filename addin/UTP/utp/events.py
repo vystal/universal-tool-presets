@@ -31,6 +31,10 @@ _state = {}
 # when the dialog closes, which is where the reading happens.
 _waiting = []
 
+# The last few command ids with a time against each, so a save that nothing
+# marked can say what was happening just before it.
+_recent = []
+
 # Every command id this session has raised. Only for the debug report: the
 # save command is matched on a substring because its exact id differs
 # between builds, and this is how the real one gets found rather than
@@ -389,7 +393,8 @@ class _DocumentSaving(adsk.core.DocumentEventHandler):
                     reason=("no command this build raised matched "
                             "config.SAVE_COMMANDS, so the document was saved "
                             "without being brought up to date"),
-                    commands_seen_recently=sorted(_commands)[-12:],
+                    in_the_three_seconds_before_it=[
+                        i for at, i in _recent if time.time() - at < 3.0],
                     fix="add the id Fusion actually raised to SAVE_COMMANDS")
                 return
             diagnostics.session_log("saved", document=name,
@@ -426,6 +431,13 @@ class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
         try:
             _calls["commands"] += 1
             _commands.add(str(args.commandId))
+            # With a time against it, so a save nothing marked can name what
+            # was happening in the seconds before it. The set on its own could
+            # not: it holds every id of the whole session, so when a Ctrl+S went
+            # unmarked it listed twelve commands and the one that mattered was
+            # indistinguishable from eleven that did not.
+            _recent.append((time.time(), str(args.commandId)))
+            del _recent[:-40]
             if str(args.commandId) in config.SAVE_COMMANDS:
                 # Recorded whatever happens next, so documentSaving can tell a
                 # save nothing recognised from one that was deliberately left
@@ -490,6 +502,12 @@ def _mark_what_they_just_edited(command):
     if marks.busy() or _running["undo"]:
         return
     app = adsk.core.Application.get()
+    if not _waiting:
+        # Nothing was put by, so either the edit handler decided it already or
+        # there was no edit to decide. Checked before the libraries are read,
+        # because pressing Cancel on an operation dialog reaches here too and
+        # was paying three and a half seconds for a reading nobody needed.
+        return
     cold = not library.warm()
     if cold:
         diagnostics.session_log(

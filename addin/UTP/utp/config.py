@@ -157,7 +157,20 @@ MAY_BUMP_LIBRARY_VERSIONS = True
 # two Save All variants of the shell around it. If a build names them something
 # else the saves stop being hooked, which is a quiet failure, so the id is now
 # logged on every save and the debug report lists every command id seen.
+# PLM360SaveCommand is in here because a real Ctrl+S on a cloud document does
+# not raise SaveDocumentCommand. Found on 6 October by somebody pressing Ctrl+S
+# once: the save went through and the detector said "A SAVE THAT NOTHING MARKED
+# FIRST". SaveDocumentCommand had been chosen by reading the names of forty
+# command ids, which is exactly the kind of confident guess this add-in keeps
+# getting caught by. PLM360 is what Fusion calls its cloud data side, and every
+# document in this shop lives there.
+#
+# Still a list of document saves rather than a substring. The reason the
+# substring went is unchanged: forty ids contain "save", among them Fusion's
+# autosave, every Save As export, and taking a screenshot.
 SAVE_COMMANDS = ("SaveDocumentCommand", "SaveDocumentAsCommand",
+                 "PLM360SaveCommand", "PLM360SaveAsCommand",
+                 "PLM360SaveAsLatestCommand",
                  "ElectronSaveAllCmd", "ElectronSaveAsAllCmd")
 
 # What Fusion calls editing an operation.
