@@ -463,52 +463,53 @@ def remove_marks(app):
     operation may be on one the add-in added, and removing that would
     re-point it without changing its values.
     """
-    document = app.activeDocument
-    report = diagnostics.Report((document.name if document else "?") + " - unmark")
-    try:
-        products = document.products if document else None
-        cam = products.itemByProductType("CAMProductType") if products else None
-        if cam is None:
-            report.note("this document has no manufacturing data")
-            return report.close(), {}, config.NOTHING_TO_CHECK
-        if not _writable(document, report):
-            return report.close(), {}, config.READ_ONLY
+    with marks.holding():
+        document = app.activeDocument
+        report = diagnostics.Report((document.name if document else "?") + " - unmark")
+        try:
+            products = document.products if document else None
+            cam = products.itemByProductType("CAMProductType") if products else None
+            if cam is None:
+                report.note("this document has no manufacturing data")
+                return report.close(), {}, config.NOTHING_TO_CHECK
+            if not _writable(document, report):
+                return report.close(), {}, config.READ_ONLY
 
-        cleared = 0
-        looked = 0
-        for setup, operations in by_setup(cam):
-            for owner in [setup] + list(operations):
-                looked += 1
-                try:
-                    changes = marks.strip(owner)
-                except Exception:
-                    report.failed("could not look at %s"
-                                  % getattr(owner, "name", "?"))
-                    continue
-                if not changes:
-                    continue
-                try:
-                    done = marks.unapply(owner, changes)
-                    adsk.doEvents()
-                    report.wrote += len(changes)
-                    cleared += 1
-                    # Named, not just counted. A command whose job is removal
-                    # should say what it removed.
-                    report.note("unmarked %s" % getattr(owner, "name", "?"),
-                                did=", ".join(done))
-                except Exception:
-                    report.failed("could not unmark %s"
-                                  % getattr(owner, "name", "?"))
-                if looked % config.OPERATIONS_PER_CHUNK == 0:
-                    adsk.doEvents()
-        _forget_leave_alone(document, report)
-        report.note("unmarked", looked_at=looked, cleared=cleared,
-                    presets="left alone; an operation may be using one")
-        return (report.close(), {"cleared": cleared},
-                config.UNMARKED % (cleared, looked))
-    except Exception:
-        report.failed("unmarking stopped early")
-        return report.close(), {}, config.STOPPED_EARLY
+            cleared = 0
+            looked = 0
+            for setup, operations in by_setup(cam):
+                for owner in [setup] + list(operations):
+                    looked += 1
+                    try:
+                        changes = marks.strip(owner)
+                    except Exception:
+                        report.failed("could not look at %s"
+                                      % getattr(owner, "name", "?"))
+                        continue
+                    if not changes:
+                        continue
+                    try:
+                        done = marks.unapply(owner, changes)
+                        adsk.doEvents()
+                        report.wrote += len(changes)
+                        cleared += 1
+                        # Named, not just counted. A command whose job is removal
+                        # should say what it removed.
+                        report.note("unmarked %s" % getattr(owner, "name", "?"),
+                                    did=", ".join(done))
+                    except Exception:
+                        report.failed("could not unmark %s"
+                                      % getattr(owner, "name", "?"))
+                    if looked % config.OPERATIONS_PER_CHUNK == 0:
+                        adsk.doEvents()
+            _forget_leave_alone(document, report)
+            report.note("unmarked", looked_at=looked, cleared=cleared,
+                        presets="left alone; an operation may be using one")
+            return (report.close(), {"cleared": cleared},
+                    config.UNMARKED % (cleared, looked))
+        except Exception:
+            report.failed("unmarking stopped early")
+            return report.close(), {}, config.STOPPED_EARLY
 
 
 def _flag_store(document):
@@ -702,163 +703,164 @@ def _nothing_seen():
 
 def run(app, allow_writing=True):
     """Check the active document. Returns (report path, counts, message)."""
-    document = app.activeDocument
-    report = diagnostics.Report(document.name if document else "no document")
-    try:
-        products = document.products if document else None
-        cam = products.itemByProductType("CAMProductType") if products else None
-        if cam is None:
-            report.note("this document has no manufacturing data")
-            return report.close(), {}, config.NOTHING_TO_CHECK
+    with marks.holding():
+        document = app.activeDocument
+        report = diagnostics.Report(document.name if document else "no document")
+        try:
+            products = document.products if document else None
+            cam = products.itemByProductType("CAMProductType") if products else None
+            if cam is None:
+                report.note("this document has no manufacturing data")
+                return report.close(), {}, config.NOTHING_TO_CHECK
 
-        # Pressing the button is also what warms the cache the edit handler
-        # needs, so it always re-reads rather than trusting an old read.
-        clock = _Clock(report)
-        marks.forget_cost()
-        shelf = _document_tools(cam)
-        resolve = _id_by_description(shelf)
-        clock.at("read the document's tools")
+            # Pressing the button is also what warms the cache the edit handler
+            # needs, so it always re-reads rather than trusting an old read.
+            clock = _Clock(report)
+            marks.forget_cost()
+            shelf = _document_tools(cam)
+            resolve = _id_by_description(shelf)
+            clock.at("read the document's tools")
 
-        tools, ok = library.cached(report, adsk.doEvents, force=True,
-                                   wanted=set(shelf))
-        clock.at("read the Hub libraries")
-        if not ok:
-            report.note("stopping: without the library nothing can be decided")
-            return (report.close(), {},
-                    config.NO_LIBRARY)
+            tools, ok = library.cached(report, adsk.doEvents, force=True,
+                                       wanted=set(shelf))
+            clock.at("read the Hub libraries")
+            if not ok:
+                report.note("stopping: without the library nothing can be decided")
+                return (report.close(), {},
+                        config.NO_LIBRARY)
 
-        # Walked once. The schema survey and the shape of the tree used to
-        # traverse the whole document again each, for nothing but to read it.
-        operations, shape = _walk(cam)
-        if shape["could not be read"]:
-            # Said as a failure, not a note, because that is what the tidy
-            # consults before it deletes anything. An operation missing from
-            # this walk is missing from the set of presets in use, and a
-            # preset wrongly thought spare is one an operation is running.
-            report.failed("could not read %d thing(s) in the operation tree, "
-                          "so nothing will be removed in this pass"
-                          % shape["could not be read"])
+            # Walked once. The schema survey and the shape of the tree used to
+            # traverse the whole document again each, for nothing but to read it.
+            operations, shape = _walk(cam)
+            if shape["could not be read"]:
+                # Said as a failure, not a note, because that is what the tidy
+                # consults before it deletes anything. An operation missing from
+                # this walk is missing from the set of presets in use, and a
+                # preset wrongly thought spare is one an operation is running.
+                report.failed("could not read %d thing(s) in the operation tree, "
+                              "so nothing will be removed in this pass"
+                              % shape["could not be read"])
 
-        # allow_writing is how "check without changing anything" works: the
-        # same pass, deciding everything and writing none of it.
-        writing = (allow_writing and settings.on("on")
-                   and config.MAY_WRITE_ON_DEMAND
-                   and _writable(document, report))
-        # A file written by a newer add-in is read and reported on, never
-        # changed: its rules are not this version's to second-guess.
-        newest = compat.survey(operations, _breathe)
-        understood, refusal = compat.may_write(newest)
-        if not understood:
-            report.note("NOT WRITING", reason=refusal)
-            writing = False
-        report.writing = writing
-        if writing:
-            # Pressing the button is how a document joins the system, which is
-            # what lets later edits and saves write to it.
-            from . import events
-            events.joined(document)
-        report.note("found operations", count=len(operations),
-                    writing="yes" if writing else "no", **shape)
+            # allow_writing is how "check without changing anything" works: the
+            # same pass, deciding everything and writing none of it.
+            writing = (allow_writing and settings.on("on")
+                       and config.MAY_WRITE_ON_DEMAND
+                       and _writable(document, report))
+            # A file written by a newer add-in is read and reported on, never
+            # changed: its rules are not this version's to second-guess.
+            newest = compat.survey(operations, _breathe)
+            understood, refusal = compat.may_write(newest)
+            if not understood:
+                report.note("NOT WRITING", reason=refusal)
+                writing = False
+            report.writing = writing
+            if writing:
+                # Pressing the button is how a document joins the system, which is
+                # what lets later edits and saves write to it.
+                from . import events
+                events.joined(document)
+            report.note("found operations", count=len(operations),
+                        writing="yes" if writing else "no", **shape)
 
-        clock.at("walked the document")
+            clock.at("walked the document")
 
-        progress = _Progress(app, len(operations), report)
-        decided = _verdicts(operations, tools, report, progress, resolve)
-        clock.at("worked out every verdict")
+            progress = _Progress(app, len(operations), report)
+            decided = _verdicts(operations, tools, report, progress, resolve)
+            clock.at("worked out every verdict")
 
-        # Versions before anything reads them, so a note can name one. The
-        # refreshed libraries are taken back, because a bump changes what
-        # every later step should be reading.
-        tools = _review_versions(cam, decided, tools, report, writing)
-        clock.at("reviewed version numbers")
+            # Versions before anything reads them, so a note can name one. The
+            # refreshed libraries are taken back, because a bump changes what
+            # every later step should be reading.
+            tools = _review_versions(cam, decided, tools, report, writing)
+            clock.at("reviewed version numbers")
 
-        # Presets first, notes second. A behind operation's note is worth
-        # little until the newer values are pickable in its dropdown, and
-        # update() leaves the tool and preset references stale, so the
-        # operations are re-read and judged again afterwards rather than
-        # reused.
-        changed_presets = _ensure_presets(cam, decided, tools, report, writing)
-        clock.at("presets in the document")
-        if changed_presets:
-            operations = _operations(cam)
-            decided = _verdicts(operations, tools, report, progress,
-                                _id_by_description(_document_tools(cam)))
-            clock.at("judged them all again, after the presets moved")
+            # Presets first, notes second. A behind operation's note is worth
+            # little until the newer values are pickable in its dropdown, and
+            # update() leaves the tool and preset references stale, so the
+            # operations are re-read and judged again afterwards rather than
+            # reused.
+            changed_presets = _ensure_presets(cam, decided, tools, report, writing)
+            clock.at("presets in the document")
+            if changed_presets:
+                operations = _operations(cam)
+                decided = _verdicts(operations, tools, report, progress,
+                                    _id_by_description(_document_tools(cam)))
+                clock.at("judged them all again, after the presets moved")
 
-        progress.saying(config.PROGRESS_MARKING)
-        # Timed from the inside. Seventeen milliseconds an operation for what
-        # should be two property reads does not add up, and guessing which
-        # part of it is wrong has been wrong three times.
-        spent = {"deciding what to mark": 0.0, "writing marks": 0.0,
-                 "recording the verdict": 0.0}
-        for index, (operation, verdict) in enumerate(decided):
-            try:
-                # Worked out whether or not it is allowed to happen, so the
-                # decisions can be read and argued with either way.
-                mark = time.time()
-                verdict["would"] = marks.plan(operation, verdict)
-                spent["deciding what to mark"] += time.time() - mark
-                if writing and verdict["would"]:
+            progress.saying(config.PROGRESS_MARKING)
+            # Timed from the inside. Seventeen milliseconds an operation for what
+            # should be two property reads does not add up, and guessing which
+            # part of it is wrong has been wrong three times.
+            spent = {"deciding what to mark": 0.0, "writing marks": 0.0,
+                     "recording the verdict": 0.0}
+            for index, (operation, verdict) in enumerate(decided):
+                try:
+                    # Worked out whether or not it is allowed to happen, so the
+                    # decisions can be read and argued with either way.
                     mark = time.time()
-                    try:
-                        verdict["written"] = marks.apply(operation,
-                                                         verdict["would"])
-                        report.wrote += len(verdict["written"])
-                    except Exception:
-                        verdict["written"] = "failed"
-                        report.failed("could not write to %s"
-                                      % verdict["operation"])
-                    spent["writing marks"] += time.time() - mark
-                    # After writing, not every twentieth operation: two
-                    # writes at 150ms each means twenty of them is six
-                    # seconds with Fusion frozen.
-                    _breathe(1, config.WRITES_PER_CHUNK)
-                mark = time.time()
-                report.operation(verdict)
-                spent["recording the verdict"] += time.time() - mark
-            except Exception:
-                report.failed("could not work out %s" % getattr(
-                    operation, "name", "an operation"))
-            if index and index % config.OPERATIONS_PER_CHUNK == 0:
-                adsk.doEvents()
-                if progress.at(index + 1):
-                    break
+                    verdict["would"] = marks.plan(operation, verdict)
+                    spent["deciding what to mark"] += time.time() - mark
+                    if writing and verdict["would"]:
+                        mark = time.time()
+                        try:
+                            verdict["written"] = marks.apply(operation,
+                                                             verdict["would"])
+                            report.wrote += len(verdict["written"])
+                        except Exception:
+                            verdict["written"] = "failed"
+                            report.failed("could not write to %s"
+                                          % verdict["operation"])
+                        spent["writing marks"] += time.time() - mark
+                        # After writing, not every twentieth operation: two
+                        # writes at 150ms each means twenty of them is six
+                        # seconds with Fusion frozen.
+                        _breathe(1, config.WRITES_PER_CHUNK)
+                    mark = time.time()
+                    report.operation(verdict)
+                    spent["recording the verdict"] += time.time() - mark
+                except Exception:
+                    report.failed("could not work out %s" % getattr(
+                        operation, "name", "an operation"))
+                if index and index % config.OPERATIONS_PER_CHUNK == 0:
+                    adsk.doEvents()
+                    if progress.at(index + 1):
+                        break
 
-        clock.at("notes and icons")
-        report.note("of which, seconds",
-                    **{k: round(v, 2) for k, v in spent.items()})
-        report.note("and of the writing, seconds",
-                    **{k: round(v, 2) for k, v in marks.cost.items()})
-        progress.done()
-        _mark_setups(cam, tools, report, writing, decided)
-        clock.at("setup notes")
-        clock.say()
+            clock.at("notes and icons")
+            report.note("of which, seconds",
+                        **{k: round(v, 2) for k, v in spent.items()})
+            report.note("and of the writing, seconds",
+                        **{k: round(v, 2) for k, v in marks.cost.items()})
+            progress.done()
+            _mark_setups(cam, tools, report, writing, decided)
+            clock.at("setup notes")
+            clock.say()
 
-        counts = dict(report.counts)
-        path = report.close()
-        summary = "\n".join("%s: %d" % (k, counts[k]) for k in sorted(counts))
-        planned = sum(1 for e in report.operations if e.get("would"))
-        wrote = sum(1 for e in report.operations
-                    if e.get("written") and e["written"] != "failed")
-        if not understood:
-            headline = refusal
-            # Assigned here too, or standing down raises on the way out and
-            # the person is told the check crashed when in fact it did
-            # exactly what it should: worked everything out and wrote none
-            # of it.
-            tail = config.STOOD_DOWN_TAIL % len(operations)
-        elif writing:
-            headline = config.MARKED % (wrote, len(operations))
-            tail = config.MARKED_TAIL
-        else:
-            headline = config.CHECKED % len(operations)
-            tail = config.CHECKED_TAIL % planned
-        events_seen = diagnostics.session_count()
-        if events_seen:
-            tail += "\n\n" + config.EVENTS_SEEN % (events_seen,
-                                                   diagnostics.session_path())
-        return path, counts, ("%s\n\n%s\n\n%s"
-                              % (headline, summary or "nothing found", tail))
-    except Exception:
-        report.failed("the pass stopped early")
-        return report.close(), {}, config.STOPPED_EARLY
+            counts = dict(report.counts)
+            path = report.close()
+            summary = "\n".join("%s: %d" % (k, counts[k]) for k in sorted(counts))
+            planned = sum(1 for e in report.operations if e.get("would"))
+            wrote = sum(1 for e in report.operations
+                        if e.get("written") and e["written"] != "failed")
+            if not understood:
+                headline = refusal
+                # Assigned here too, or standing down raises on the way out and
+                # the person is told the check crashed when in fact it did
+                # exactly what it should: worked everything out and wrote none
+                # of it.
+                tail = config.STOOD_DOWN_TAIL % len(operations)
+            elif writing:
+                headline = config.MARKED % (wrote, len(operations))
+                tail = config.MARKED_TAIL
+            else:
+                headline = config.CHECKED % len(operations)
+                tail = config.CHECKED_TAIL % planned
+            events_seen = diagnostics.session_count()
+            if events_seen:
+                tail += "\n\n" + config.EVENTS_SEEN % (events_seen,
+                                                       diagnostics.session_path())
+            return path, counts, ("%s\n\n%s\n\n%s"
+                                  % (headline, summary or "nothing found", tail))
+        except Exception:
+            report.failed("the pass stopped early")
+            return report.close(), {}, config.STOPPED_EARLY

@@ -285,6 +285,33 @@ def busy():
     return _writing["depth"] > 0
 
 
+class holding:
+    """Keep the add-in's own writes from waking its own listeners.
+
+    busy() covers one apply(). It is not enough. The pass hands Fusion the
+    thread back between writes, which is what keeps Fusion responsive, and
+    doing that dispatches the operationBaseChanged that each write queued. By
+    then apply() had let go, so the edit handler treated the pass's own write
+    as somebody's edit, reconciled the operation against the session's library
+    cache, and wrote its own note over the one the pass had just written.
+
+    Measured on a bench document: every check reported marking all eight
+    operations, for ever, because the notes it wrote were overwritten before
+    the pass had finished. A whole document could never settle, which is also
+    why checking one job twice kept finding the same work to do.
+
+    So a pass holds this for its whole length, not one write at a time.
+    """
+
+    def __enter__(self):
+        _writing["depth"] += 1
+        return self
+
+    def __exit__(self, *failure):
+        _writing["depth"] -= 1
+        return False
+
+
 def strip(owner):
     """What removing every trace from one operation or setup would change.
 

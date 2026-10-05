@@ -200,46 +200,47 @@ def mark_document(document, why):
     what it writes becomes part of that save, rather than during, where it
     lands after the snapshot and leaves the file dirty again.
     """
-    from . import passes
-    report = _Quiet()
-    tools, ok = library.cached(report)
-    if not ok:
-        diagnostics.session_log("%s: nothing decided" % why,
-                                reason="the Hub libraries could not be read")
-        return 0
-    all_operations = list(passes.operations_of(document))
-    allowed, held_back = _may_write(document, all_operations)
-    counts = {}
-    planned = wrote = failed = 0
-    seen = {}
-    # What it did, named. A count said "wrote: 1" whether that was a note
-    # somebody would see or a record nobody would, which made working
-    # behaviour and broken behaviour look identical.
-    did = []
-    for index, operation in enumerate(all_operations):
-        verdict = state.reconcile(operation, tools, seen)
-        counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
-        would = marks.plan(operation, verdict)
-        if not would:
-            continue
-        planned += 1
-        if not allowed:
-            continue
-        try:
-            marks.apply(operation, would)
-            wrote += 1
-            did.append("%s: %s" % (getattr(operation, "name", "?"),
-                                   marks.describe(would)))
-            adsk.doEvents()
-        except Exception:
-            failed += 1
-        if index % config.OPERATIONS_PER_CHUNK == 0:
-            adsk.doEvents()
-    diagnostics.session_log(
-        why, document=getattr(document, "name", "?"), verdicts=counts,
-        would_mark=planned, wrote=wrote, did=did[:20] or "nothing",
-        failed=failed or None, held_back=held_back)
-    return wrote
+    with marks.holding():
+        from . import passes
+        report = _Quiet()
+        tools, ok = library.cached(report)
+        if not ok:
+            diagnostics.session_log("%s: nothing decided" % why,
+                                    reason="the Hub libraries could not be read")
+            return 0
+        all_operations = list(passes.operations_of(document))
+        allowed, held_back = _may_write(document, all_operations)
+        counts = {}
+        planned = wrote = failed = 0
+        seen = {}
+        # What it did, named. A count said "wrote: 1" whether that was a note
+        # somebody would see or a record nobody would, which made working
+        # behaviour and broken behaviour look identical.
+        did = []
+        for index, operation in enumerate(all_operations):
+            verdict = state.reconcile(operation, tools, seen)
+            counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
+            would = marks.plan(operation, verdict)
+            if not would:
+                continue
+            planned += 1
+            if not allowed:
+                continue
+            try:
+                marks.apply(operation, would)
+                wrote += 1
+                did.append("%s: %s" % (getattr(operation, "name", "?"),
+                                       marks.describe(would)))
+                adsk.doEvents()
+            except Exception:
+                failed += 1
+            if index % config.OPERATIONS_PER_CHUNK == 0:
+                adsk.doEvents()
+        diagnostics.session_log(
+            why, document=getattr(document, "name", "?"), verdicts=counts,
+            would_mark=planned, wrote=wrote, did=did[:20] or "nothing",
+            failed=failed or None, held_back=held_back)
+        return wrote
 
 
 class _DocumentSaving(adsk.core.DocumentEventHandler):
