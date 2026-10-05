@@ -325,8 +325,23 @@ SETTINGS_FILE = os.path.join(REPORT_DIR, "UTP switches.json")
 # as a comment when a post has showNotes on, measured in group X, and there
 # ( ) delimit the comment itself, [ ] are macro-B brackets on Fanuc controls,
 # # is a macro variable, ; is a comment on Haas and Siemens, and % starts and
-# ends a program. Whether a particular control accepts a backtick in a comment
-# is worth posting one program to find out.
+# ends a program.
+#
+# Whether a control accepts a backtick was the open question. Settled on
+# 6 October by posting this shop's own posts from the bench:
+#
+#   fanuc.cps                notes on   (UTP P COPPER V1)      backticks stripped
+#   OKUMA 020425.cps         notes on   (`UTP P Copper v1`)    backticks kept
+#   OKUMA 020425.cps         defaults   no note in the NC at all
+#
+# So the Fanuc post sanitises the comment and uppercases it, and the Okuma post
+# passes the characters through but does not emit operation notes unless somebody
+# turns showNotes on. Nothing reaches a control as things stand.
+#
+# What that leaves: if anyone ever switches showNotes on for the Okuma post, a
+# backtick goes to an Okuma control and nobody here knows whether it minds. Check
+# that before turning it on, or change these two constants first -- which means
+# raising SCHEMA, because an older add-in would not recognise the new form.
 NOTE_PREFIX = "`UTP "
 NOTE_SUFFIX = "`"
 
