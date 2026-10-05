@@ -417,7 +417,9 @@ good, use Switches.
 
 Things worth knowing
 
-Your own notes are kept. It only owns the line starting [UTP].
+Your own notes are kept. It owns the first line only, the one starting
+[UTP]. Write what you like underneath. Do not start your own first line
+with [UTP], because that one it will take as its own.
 Your own icon colours are kept, and put back if you remove the marks.
 Older jobs stay silent. Nothing is marked until somebody uses a shop preset.
 Every check writes a report to the reports folder, saying what it found.

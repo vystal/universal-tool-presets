@@ -119,8 +119,12 @@ to stay gone.</p>
 
 <h2>Worth knowing</h2>
 <ul>
-  <li><strong>Your own notes are kept.</strong> It only owns the line starting
-      <code>[UTP]</code>; anything else you write stays exactly as it is.</li>
+  <li><strong>Your own notes are kept.</strong> It owns the first line only,
+      the one starting <code>[UTP]</code>. Write what you like underneath and
+      it stays exactly as you typed it, blank lines and all. The one thing to
+      avoid is making <em>your</em> first line start with
+      <code>[UTP]</code> &mdash; that one it will take as its own and
+      overwrite.</li>
   <li><strong>Your own icon colours are kept</strong> and put back if the
       marks are removed.</li>
   <li><strong>Older jobs stay silent.</strong> Nothing is marked until

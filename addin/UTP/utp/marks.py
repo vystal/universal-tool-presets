@@ -95,12 +95,22 @@ def setup_plan(setup, counts):
 def merge(existing, line):
     """The note the add-in would leave behind, ours first and theirs below.
 
-    Every line starting with the prefix is treated as ours, not just the
-    first. A second one can only have got there from a run that was
-    interrupted, so it is cleaned up rather than preserved.
+    Only the first line can be ours. It used to be every line starting with
+    the prefix, on the reasoning that a second one "can only have got there
+    from a run that was interrupted" — which overlooked the obvious: a person
+    can type one. Somebody who has learned to read these notes writes
+    "[UTP] check this one by hand before running" on an operation, and the
+    next save replaced their sentence with a version number. Deleting a
+    shop-floor instruction without trace is the worst thing in here.
+
+    The add-in always writes its line first, so first-line-only loses nothing
+    it needs. A duplicate left by an interrupted run now survives as their
+    text, which is untidy where the old rule was destructive, and that is the
+    right way round.
     """
-    theirs = [l for l in (existing or "").splitlines()
-              if not l.startswith(config.NOTE_PREFIX)]
+    lines = (existing or "").splitlines()
+    theirs = lines[1:] if lines and lines[0].startswith(config.NOTE_PREFIX) \
+        else lines
     if line is None:
         return "\n".join(theirs).strip("\n")
     return "\n".join([line] + theirs).rstrip("\n")
@@ -152,9 +162,13 @@ def _marked_before(owner):
 
 
 def _ours_in(existing):
-    """Whether our line is in a note at all."""
-    return any(line.startswith(config.NOTE_PREFIX)
-               for line in (existing or "").splitlines())
+    """Whether the note starts with a line of ours.
+
+    First line only, for the same reason merge() owns only the first: a
+    prefixed line further down is somebody's own words.
+    """
+    lines = (existing or "").splitlines()
+    return bool(lines) and lines[0].startswith(config.NOTE_PREFIX)
 
 
 def plan(operation, verdict, during_their_edit=False):
