@@ -90,6 +90,44 @@ same way, so the release path is used daily rather than trusted once.
 Install either the repo copy or the loader on a given machine, not both: they
 register the same command and would fight over the button.
 
+## Testing it
+
+Two suites, because there are two kinds of thing to be wrong.
+
+The decisions run anywhere, in a twentieth of a second, with no Fusion:
+
+```bash
+python -m pytest addin/UTP/tests -q
+```
+
+What the add-in does *to* Fusion only Fusion can answer for, so that suite runs
+inside it, through a small agent add-in that executes jobs on Fusion's main
+thread. Install `addin/UTPAgent` the same way as the add-in, open a throwaway
+document with `UTP TEST` in its name, and:
+
+```bash
+python tools/ask_fusion.py addin/UTP/tests/run_integration.py --writes
+```
+
+Seventeen checks: the listeners are attached and survive a garbage collection,
+an edit is marked whether the library cache is cold or warm, a save marks and
+then settles and keeps to its budget, a check settles, a check adds one preset
+when the library moves and never a second, removing the notes removes everything
+and a check puts it back, a newer schema is refused rather than written over,
+somebody's own note text survives, a part-read of the libraries is not kept.
+
+Every one of those is a fault that has actually happened. The decisions were
+well tested long before any of this was, and not one of the faults found in the
+first days of real use was a decision: they were object lifetimes, which events
+fire and when, what is still valid after an update, and what a cache holds.
+Run the second suite before releasing anything.
+
+Single questions are quicker than a suite:
+
+```bash
+python tools/ask_fusion.py -c 'say(app.version)'
+```
+
 ## Changing what it says
 
 Everything a person sees in Fusion is in `addin/UTP/utp/config.py`: what a
