@@ -150,6 +150,37 @@ SAVE_COMMANDS = ("SaveDocumentCommand", "SaveDocumentAsCommand",
 LISTEN_TO_EVENTS = True
 
 # ---------------------------------------------------------------------------
+# What counts as a UTP
+# ---------------------------------------------------------------------------
+
+# Presets that are not somebody's decision. Fusion gives a tool a preset of its
+# own accord, and it is the tool's baseline, not a Universal Tool Preset: the
+# whole idea here is a named preset a shop made on purpose, "Titanium T48
+# Roughing", not whatever the tool arrived holding.
+#
+# Measured: 390 tools and 441 presets across the Hub libraries, so nearly every
+# preset found was this one. The consequence was notes reading "Default preset
+# v1", which tells a machinist nothing, version numbers stamped onto defaults in
+# the shared library, and "Default preset v1 (latest)" copies accumulating in
+# dropdowns. All three of the presets in this shop that carry a depth of cut are
+# this one too.
+#
+# Matched by name, because there is nothing else to match on: a ToolPreset
+# exposes only attributes, id, name and parameters, and Fusion's own is
+# indistinguishable in shape from one somebody made. That makes this list
+# language-specific, so a Fusion in another language needs its name adding. The
+# debug report lists what was found, which is how that gets noticed rather than
+# guessed at. Excluding one too many is the safe direction: the add-in goes
+# quiet about those operations rather than acting on them.
+NOT_A_UTP_NAMES = ("default preset",)
+
+
+def is_a_utp(name):
+    """Whether a preset of this name is somebody's decision."""
+    return (name or "").strip().lower() not in NOT_A_UTP_NAMES
+
+
+# ---------------------------------------------------------------------------
 # Where UTPs live
 # ---------------------------------------------------------------------------
 

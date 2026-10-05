@@ -70,6 +70,22 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
         return verdict
     verdict["preset"] = preset.name
     verdict["presetId"] = preset.id
+    if not config.is_a_utp(presets.without_suffix(preset.name)):
+        # The preset Fusion gives a tool of its own accord. Said here as well
+        # as kept out of the library, because an operation may already be
+        # sitting on one: leaving it to fall through would reach "its preset is
+        # not in the library any more", which reads as the shop having retired
+        # something and is the wrong thing to tell anybody.
+        #
+        # without_suffix strips the "(latest)" marker and a trailing version,
+        # so a copy the add-in made of one of these before the rule existed is
+        # recognised too rather than lingering as the only thing still treated
+        # as a UTP. A retired copy, named "(until a date)", is not stripped and
+        # not chased: it exists only because of the behaviour this rule stops.
+        verdict["state"] = NOT_UTP
+        verdict["why"] = ("its preset is the one Fusion creates by itself, not "
+                          "a preset the shop made")
+        return verdict
     verdict["record"] = _record(operation, preset.id)
 
     # Looked up here rather than further down, so it is known for every

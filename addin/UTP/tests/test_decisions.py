@@ -209,6 +209,25 @@ def test_a_preset_change_that_moves_the_cut_says_so():
     assert all(ord(c) < 128 for c in deeper)
 
 
+def test_fusions_own_preset_is_not_a_shop_preset():
+    """Nearly every preset in this shop's libraries is the one Fusion creates
+    by itself, which is a tool's baseline and not somebody's decision. Treating
+    it as a UTP gave notes reading "Default preset v1", version numbers stamped
+    onto defaults in the shared library, and copies of them accumulating in
+    dropdowns."""
+    assert config.is_a_utp("P Titanium")
+    assert config.is_a_utp("FAST")
+    assert not config.is_a_utp("Default preset")
+    assert not config.is_a_utp("  default PRESET ")
+    # and a copy the add-in made of one before this rule existed, which is
+    # what state.reconcile strips before asking
+    for made in ("Default preset v1 (latest)", "Default preset v12", 
+                 "Default preset (latest)"):
+        assert not config.is_a_utp(presets.without_suffix(made)), made
+    # a real one keeps its identity through the same stripping
+    assert config.is_a_utp(presets.without_suffix("P Titanium v3 (latest)"))
+
+
 # ---------------------------------------------------------------------------
 # Comparing values
 # ---------------------------------------------------------------------------

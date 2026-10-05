@@ -74,12 +74,22 @@ class LibraryTool:
         # empty one shares nothing and nothing ever differs. That used to read
         # as "matches the library".
         self.valueless = 0
+        # Presets Fusion made rather than somebody in the shop. See
+        # config.NOT_A_UTP_NAMES.
+        self.ignored = 0
         for index in range(tool.presets.count):
             try:
                 preset = LibraryPreset(tool.presets.item(index), self.id,
                                        library_path, library_url)
             except Exception:
                 self.unreadable += 1
+                continue
+            if not config.is_a_utp(preset.name):
+                # Not offered as a UTP at all, which is what stops it being
+                # synced into documents, stamped with a version, or copied as
+                # "(latest)". Counted so the report can say how many were
+                # passed over rather than leaving a tool looking presetless.
+                self.ignored += 1
                 continue
             if not preset.values:
                 self.valueless += 1
@@ -188,7 +198,7 @@ def read(report, do_events=None, wanted=None):
         return tools, False, False
 
     assets = _walk(libraries, url)
-    read_count = preset_count = unreadable = valueless = 0
+    read_count = preset_count = unreadable = valueless = ignored = 0
     stopped_early = False
     # The tools this document actually uses, if the caller knows them. Each
     # library is a request over the network, measured between three and eight
@@ -215,6 +225,7 @@ def read(report, do_events=None, wanted=None):
                 preset_count += len(tool.presets)
                 unreadable += tool.unreadable
                 valueless += tool.valueless
+                ignored += tool.ignored
             if do_events is not None and index % config.OPERATIONS_PER_CHUNK == 0:
                 do_events()
 
@@ -228,6 +239,11 @@ def read(report, do_events=None, wanted=None):
 
     report.note("read the Hub libraries",
                 libraries=read_count, tools=len(tools), presets=preset_count)
+    if ignored:
+        report.note("presets Fusion created rather than somebody in the shop",
+                    count=ignored, names=list(config.NOT_A_UTP_NAMES),
+                    consequence=("not treated as UTPs, so operations on them "
+                                 "are left alone"))
     if valueless:
         report.note("SOME PRESETS HELD NO VALUES AT ALL", count=valueless,
                     consequence=("operations using them cannot be judged, so "
