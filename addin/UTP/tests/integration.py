@@ -183,7 +183,11 @@ def _cold_edit(bench):
     library.forget()
     del events._waiting[:]
     held = operation.notes or ""
-    operation.notes = ""            # raises the event with the cache cold
+    # A line of ours that is wrong, not a cleared note. Clearing one is a
+    # deliberate feature -- a note somebody deletes while editing stays deleted
+    # until a save -- so using that as the nudge tested the wrong thing and
+    # failed for the right reason the first time this suite ran.
+    operation.notes = marks.ours("deliberately wrong")
     pump()
     waiting = len(events._waiting)
     if not waiting:
@@ -194,14 +198,16 @@ def _cold_edit(bench):
     # and the command-end hook reads the libraries and marks what was waiting
     events._mark_what_they_just_edited("IronEditOperation")
     pump()
-    marked = (operation.notes or "").startswith(config.NOTE_PREFIX)
+    now = operation.notes or ""
     with marks.holding():
         operation.notes = held
     pump(10)
-    if not marked:
-        return "FAIL", ("the hook read the libraries and did not mark the "
-                        "operation that was waiting")
-    return "PASS", "put by, then marked when the dialog closed"
+    if "deliberately wrong" in now:
+        return "FAIL", ("the hook read the libraries and left the wrong line "
+                        "in place: %r" % now)
+    if not now.startswith(config.NOTE_PREFIX):
+        return "FAIL", "nothing was written when the dialog closed: %r" % now
+    return "PASS", "put by, then corrected when the dialog closed: %r" % now
 
 
 @check("a warm cache marks the edit at once")
@@ -213,21 +219,21 @@ def _warm_edit(bench):
     if not library.warm():
         return "SKIP", "the libraries could not be read"
     held = operation.notes or ""
-    with marks.holding():
-        operation.notes = "something of their own"
     del events._waiting[:]
-    operation.notes = "something of their own and a nudge"
+    operation.notes = marks.ours("deliberately wrong")
     pump()
-    marked = (operation.notes or "").startswith(config.NOTE_PREFIX)
+    now = operation.notes or ""
     put_by = len(events._waiting)
     with marks.holding():
         operation.notes = held
     pump(10)
     if put_by:
         return "FAIL", "it was put by although the cache was warm"
-    if not marked:
-        return "FAIL", "a warm edit did not mark the operation"
-    return "PASS", "marked inside the edit, nothing left waiting"
+    if "deliberately wrong" in now:
+        return "FAIL", "a warm edit left the wrong line in place: %r" % now
+    if not now.startswith(config.NOTE_PREFIX):
+        return "FAIL", "a warm edit wrote nothing: %r" % now
+    return "PASS", "corrected inside the edit: %r" % now
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +257,10 @@ def _save_budget(bench):
     if total < 2:
         return "SKIP", "needs more than one operation"
     was = config.SAVE_SECONDS
-    config.SAVE_SECONDS = 0.0001
+    # Small enough that one save cannot finish the document, not so small that
+    # it cannot start it. Zero progress at all is a separate thing and the
+    # add-in now guarantees one operation a save whatever the budget says.
+    config.SAVE_SECONDS = 0.001
     _state = events._state
     _state.pop("save cursor", None)
     try:

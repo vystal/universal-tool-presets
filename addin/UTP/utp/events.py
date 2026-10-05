@@ -266,7 +266,15 @@ def mark_document(document, why):
         behind = []
         looked = 0
         for operation in order:
-            if budget and time.time() - started > budget:
+            # The budget is consulted only once something has been done. A
+            # budget already spent before the loop starts -- because the
+            # libraries had to be read, or because it is set very low -- would
+            # otherwise look at nothing, advance the cursor by nothing, and do
+            # the same on every save for ever. A document that never progresses
+            # is worse than a save that takes a moment longer, so at least one
+            # operation is always looked at. Found by the integration suite on
+            # its first run.
+            if budget and looked and time.time() - started > budget:
                 break
             verdict = state.reconcile(operation, tools, seen)
             looked += 1
