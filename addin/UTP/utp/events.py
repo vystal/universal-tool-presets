@@ -27,6 +27,10 @@ _handlers = []
 _running = {"undo": False}
 _state = {}
 
+# Operations the edit handler saw before the libraries had been read. Emptied
+# when the dialog closes, which is where the reading happens.
+_waiting = []
+
 # Every command id this session has raised. Only for the debug report: the
 # save command is matched on a substring because its exact id differs
 # between builds, and this is how the real one gets found rather than
@@ -157,12 +161,17 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
                 # reads the libraries and catches the whole document up, and
                 # so does the check button, and after either of those every
                 # edit is decided as it happens.
+                # Put by for the moment the dialog closes, which is where the
+                # libraries get read. The handler knows exactly which operation
+                # this is; nothing else afterwards does, because Fusion leaves
+                # nothing selected once the dialog has gone.
+                _waiting.append(operation)
                 diagnostics.session_log(
-                    "edit seen, nothing decided", operation=name,
+                    "edit seen, nothing decided yet", operation=name,
                     reason="the libraries have not been read yet this "
                            "session, and reading them inside an edit would "
                            "stall Fusion for seconds",
-                    caught_up_by="saving, or the check button")
+                    caught_up_by="the moment this dialog closes")
                 return
             tools, ok = library.cached(_Quiet())
             if not ok:
@@ -483,15 +492,13 @@ def _mark_what_they_just_edited(command):
                                stale_after=config.LIBRARY_STALE_AFTER)
     if not ok:
         return
+    # The operations the edit handler saw and could not decide on. Taken from
+    # what it put by, not from the selection: measured on 6 October, Fusion
+    # leaves nothing selected when an operation dialog closes, so a first edit
+    # read the libraries and then marked nothing at all.
+    picked, _waiting[:] = list(_waiting), []
     done = []
-    try:
-        chosen = app.userInterface.activeSelections
-        picked = [chosen.item(i).entity for i in range(chosen.count)]
-    except Exception:
-        picked = []
     for entity in picked:
-        if not isinstance(entity, adsk.cam.Operation):
-            continue
         owner, _guessed = _document_of(entity, app)
         allowed, held_back = _may_write(owner, [entity], "edit")
         verdict = state.reconcile(entity, tools)
@@ -508,8 +515,12 @@ def _mark_what_they_just_edited(command):
                      "would": marks.describe(would) if would else "nothing",
                      "written": written or "nothing",
                      "held back": held_back})
+    if not picked:
+        # Nothing was waiting, so the edit handler decided it already. Said at
+        # all only because silence here was what hid the last fault.
+        return
     diagnostics.session_log("edit finished", command=command,
-                            selected=len(picked), did=done or "nothing selected")
+                            waiting=len(picked), did=done)
 
 
 class _Quiet:
