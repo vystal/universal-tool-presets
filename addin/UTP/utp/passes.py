@@ -254,7 +254,7 @@ def _review_versions(cam, decided, tools, report, writing):
     if not wanted:
         return tools
     libraries = adsk.cam.CAMManager.get().libraryManager.toolLibraries
-    allowed = writing and config.MAY_BUMP_LIBRARY_VERSIONS
+    allowed = writing and settings.on("stamp")
     if versions.review(libraries, wanted.values(), report, allowed) and allowed:
         library.forget()          # the numbers just moved; read them again
         fresh, ok = library.cached(report, adsk.doEvents, force=True)

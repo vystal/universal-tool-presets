@@ -16,6 +16,8 @@ change along with dozens of notes they never touched. That is the same rule
 speed asks for, arrived at from a different direction.
 """
 
+import time
+
 import adsk.core
 import adsk.cam
 
@@ -193,6 +195,11 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
             diagnostics.session_log("edit handler failed", error=str(exc))
 
 
+def _key(document):
+    """Something to remember a per-document position against."""
+    return identify(document) or getattr(document, "name", "?")
+
+
 def _cam_of(document):
     try:
         return document.products.itemByProductType("CAMProductType")
@@ -210,7 +217,16 @@ def mark_document(document, why):
     with marks.holding():
         from . import passes
         report = _Quiet()
+        # Timed separately and reported, because it is the one part of a save
+        # the budget below cannot cap: deciding anything at all needs the
+        # libraries, and reading them is all or nothing. It happens once per
+        # Fusion session, so the first save of the day is seconds and every
+        # save after it is milliseconds. Without this in the log, that first
+        # one looks like the add-in being slow rather than the network being
+        # read once.
+        reading = time.time()
         tools, ok = library.cached(report)
+        reading = round(time.time() - reading, 2)
         if not ok:
             diagnostics.session_log("%s: nothing decided" % why,
                                     reason="the Hub libraries could not be read")
@@ -225,44 +241,27 @@ def mark_document(document, why):
         # behaviour and broken behaviour look identical.
         did = []
 
-        # Judged before anything is written, because a behind operation needs
-        # the newer values pickable in its dropdown before its note is worth
-        # anything. The note says "pick the one ending (latest)", and that
-        # entry was only ever created by the button: on a machine where nobody
-        # presses it, saving put "v3 available" on operations with no v3 to
-        # pick. The rollout guard being off is the ordinary state, so that was
-        # the ordinary path. The same function the button uses, not another
-        # copy of it.
-        decided = [(op, state.reconcile(op, tools, seen))
-                   for op in all_operations]
-        for _op, verdict in decided:
-            counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
-        behind = [pair for pair in decided if pair[1]["state"] == state.BEHIND]
-        if behind and allowed:
-            cam = _cam_of(document)
-            if cam is not None:
-                try:
-                    changed = passes._ensure_presets(cam, decided, tools,
-                                                     _Quiet(), True)
-                    if changed:
-                        # update() leaves tool and preset references stale, so
-                        # the operations are read and judged again rather than
-                        # reused, exactly as the button's pass does.
-                        all_operations = list(passes.operations_of(document))
-                        seen = {}
-                        decided = [(op, state.reconcile(op, tools, seen))
-                                   for op in all_operations]
-                        counts = {}
-                        for _op, verdict in decided:
-                            counts[verdict["state"]] = counts.get(
-                                verdict["state"], 0) + 1
-                        did.append("brought %d preset(s) into the document"
-                                   % len(changed))
-                except Exception as exc:
-                    diagnostics.session_log(
-                        "%s: could not bring presets in" % why, error=str(exc))
+        # Where the last save got to in this document, so a job too big for one
+        # save is finished by the next few rather than freezing every one of
+        # them. Judging is most of the cost, so the budget has to cover judging
+        # and not only writing.
+        started = time.time()
+        budget = config.SAVE_SECONDS
+        cursor = _state.get("save cursor", {}).get(_key(document), 0)
+        if cursor >= len(all_operations):
+            cursor = 0
+        order = all_operations[cursor:] + all_operations[:cursor]
 
-        for index, (operation, verdict) in enumerate(decided):
+        behind = []
+        looked = 0
+        for operation in order:
+            if budget and time.time() - started > budget:
+                break
+            verdict = state.reconcile(operation, tools, seen)
+            looked += 1
+            counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
+            if verdict["state"] == state.BEHIND:
+                behind.append((operation, verdict))
             would = marks.plan(operation, verdict)
             if not would:
                 continue
@@ -277,10 +276,51 @@ def mark_document(document, why):
                 adsk.doEvents()
             except Exception:
                 failed += 1
-            if index % config.OPERATIONS_PER_CHUNK == 0:
-                adsk.doEvents()
+
+        # A behind operation needs the newer values pickable in its dropdown
+        # before its note is worth anything: the note says "pick the one ending
+        # (latest)", and that entry used to be created only by the button, so on
+        # a machine where nobody pressed it a save put "v3 available" on
+        # operations with no v3 to pick. Only for the ones this save actually
+        # looked at, and only if there is time left, because bringing a preset
+        # in is a bigger write than a note.
+        if behind and allowed and (not budget or time.time() - started < budget):
+            cam = _cam_of(document)
+            if cam is not None:
+                try:
+                    changed = passes._ensure_presets(cam, behind, tools,
+                                                     _Quiet(), True)
+                    if changed:
+                        did.append("brought %d preset(s) into the document"
+                                   % len(changed))
+                        # update() leaves tool and preset references stale, so
+                        # the ones that changed are read and judged again rather
+                        # than reused, as the button's pass does.
+                        seen = {}
+                        for operation in passes.operations_of(document):
+                            verdict = state.reconcile(operation, tools, seen)
+                            if verdict["state"] != state.BEHIND:
+                                continue
+                            would = marks.plan(operation, verdict)
+                            if would:
+                                try:
+                                    marks.apply(operation, would)
+                                    wrote += 1
+                                except Exception:
+                                    failed += 1
+                except Exception as exc:
+                    diagnostics.session_log(
+                        "%s: could not bring presets in" % why, error=str(exc))
+
+        left = len(all_operations) - looked
+        _state.setdefault("save cursor", {})[_key(document)] = (
+            (cursor + looked) % len(all_operations) if all_operations else 0)
         diagnostics.session_log(
             why, document=getattr(document, "name", "?"), verdicts=counts,
+            looked_at=looked, of=len(all_operations),
+            seconds_reading_the_libraries=reading or None,
+            left_for_the_next_save=left or None,
+            seconds=round(time.time() - started, 2),
             would_mark=planned, wrote=wrote, did=did[:20] or "nothing",
             failed=failed or None, held_back=held_back)
         return wrote

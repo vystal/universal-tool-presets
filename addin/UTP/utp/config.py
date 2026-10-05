@@ -112,6 +112,20 @@ MAY_ADD_PRESETS = True
 # most recently retired copy is kept because the library holds only today's
 # values and that copy is the last record of what an operation used to run.
 MAY_TIDY_PRESETS = True
+# Only the default now. The switch somebody can reach is "Number the shop
+# library" in the Switches dialog.
+#
+# It needed reaching. It is the one write in here that leaves the person's own
+# document: version numbers go into the shop's shared library, and
+# updateToolLibrary writes the whole library back from a shelf read earlier in
+# the same pass, so two machines overlapping could have the second undo a feed
+# change somebody made in between. One machine today, so no race today, but it
+# is the only thing here with no undo and the only control for it was editing
+# this file on every machine.
+#
+# Left on, because it has been running for weeks and it is what lets a note say
+# "v2, v3 available" rather than just "something newer". Turn it off and the
+# notes still say when something is newer; they cannot name which version.
 MAY_BUMP_LIBRARY_VERSIONS = True
 
 # Marking happens when the Save command starts, not while the save is under
@@ -228,6 +242,24 @@ WRITES_PER_CHUNK = 1
 # but has to be looked at. Turn this on for a bar with a cancel button when
 # a particular file is worth waiting on.
 SHOW_PROGRESS = False
+
+# How long marking may hold up a save, in seconds.
+#
+# A save marks the whole document, synchronously, before Fusion starts saving.
+# Judging one operation costs about ten milliseconds and marking one costs two
+# writes at about a hundred and fifty, so a four hundred operation job is four
+# seconds to decide and could be a minute to write. On the one action a person
+# performs twenty times a day. A save that hangs is the fastest way to get an
+# add-in uninstalled, and nothing capped it.
+#
+# So a save does what it can in this long and remembers where it stopped, and
+# the next save carries on from there. A document converges over a few saves
+# instead of freezing on one, and the button still does the whole thing in one
+# go because pressing it is asking for that.
+#
+# Two seconds because a save already takes about that, so the add-in at worst
+# doubles something nobody times. Set it to 0 for no limit.
+SAVE_SECONDS = 2.0
 
 # Below this many operations a pass is quick enough that a progress bar is
 # only a flicker, so it is not shown even when the switch is on.

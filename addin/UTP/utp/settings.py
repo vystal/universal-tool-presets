@@ -40,6 +40,7 @@ CONTROLS = (
     ("mark", "Notes and colours", "what", None),
     ("presets", "Add presets", "what", "MAY_ADD_PRESETS"),
     ("tidy", "Remove unused presets", "what", "MAY_TIDY_PRESETS"),
+    ("stamp", "Number the shop library", "what", "MAY_BUMP_LIBRARY_VERSIONS"),
 )
 
 GROUPS = (("when", "When it checks on its own"),
@@ -67,6 +68,11 @@ MEANS = {
     "tidy": "Copies the add-in made that no operation points at any more. "
             "Never a preset somebody made, and the most recently retired "
             "copy is kept.",
+    "stamp": "Version numbers, written into the shop's own library so a note "
+             "can say v2 or v3 instead of just \"newer\". The only thing "
+             "here that writes outside your own document, and the only one "
+             "with no undo. Off, and the notes still say when something is "
+             "newer, they just cannot name which version.",
 }
 
 
