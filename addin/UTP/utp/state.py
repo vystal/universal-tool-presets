@@ -110,6 +110,19 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
         preset_values = values.scalars(preset)
         if seen is not None:
             seen[preset.id] = preset_values
+    if not preset_values:
+        # Nothing could be read from the preset the operation sits on. Said
+        # out loud, because every comparison below works on the names the two
+        # sides share, and an empty side shares nothing with anything: no
+        # values differ, so nothing is custom, nothing is behind, and the
+        # verdict fell through to "matches the library" and painted a green
+        # dot. Green is the one note that means do nothing, so the failure
+        # that most needed saying was the one that said least.
+        verdict["state"] = UNKNOWN
+        verdict["why"] = ("nothing could be read from its preset, so there is "
+                          "nothing to compare it against")
+        return verdict
+
     operation_values = values.named(operation, preset_values)
     edited = values.differences(operation_values, preset_values)
     if edited:
@@ -138,6 +151,14 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
                           "there is nothing to compare it against")
         return verdict
     verdict["preset"] = library_preset.name
+
+    if not library_preset.values:
+        # The same hole from the library side: a preset that was built but
+        # yielded no values would make every operation on it read as current.
+        verdict["state"] = UNKNOWN
+        verdict["why"] = ("nothing could be read from this preset in the "
+                          "library, so there is nothing to compare against")
+        return verdict
 
     moved = values.differences(preset_values, library_preset.values)
     if moved:

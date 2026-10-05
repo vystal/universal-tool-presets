@@ -95,6 +95,21 @@ def setup_plan(setup, counts):
         colour = _was_icon(setup) or config.ICON_DEFAULT
     if colour is not None and _icon(setup) != colour:
         changes["icon"] = {"from": _icon(setup), "to": colour}
+    if changes and not _marked_before(setup):
+        # The colour it had before any of this, so removing the marks can put
+        # it back. Operations have recorded theirs since the beginning and
+        # setups never did, so "your own icon colours are kept, and put back
+        # if you remove the marks" was false for every setup somebody had
+        # coloured: strip() found nothing to restore and painted it grey.
+        #
+        # Only once, when the add-in first touches this setup, and only when
+        # there is something else to write anyway. A setup is one write, not
+        # one per operation.
+        held = {"s": config.SCHEMA}
+        was = _icon(setup)
+        if was is not None:
+            held["i"] = was
+        changes["record"] = held
     return changes
 
 
@@ -170,7 +185,10 @@ def _mine(lines):
     """Which lines of a note the add-in wrote, by position.
 
     An encased line is the add-in's wherever it sits, which is the whole point
-    of encasing it.
+    of encasing it. Both marks are checked. Checking only the opening one made
+    the encasing decorative: a sentence somebody began with the prefix and did
+    not close was still claimed and deleted, which is the exact harm encasing
+    was introduced to stop. A unit test now says so.
 
     A bare "[UTP] " line is only considered when there is no encased one in
     the note at all. Then it was written by a version that had not started
@@ -184,7 +202,8 @@ def _mine(lines):
     form changed, and it narrows to nothing as documents are re-marked.
     """
     mine = {index for index, line in enumerate(lines)
-            if line.startswith(config.NOTE_PREFIX)}
+            if line.startswith(config.NOTE_PREFIX)
+            and line.endswith(config.NOTE_SUFFIX)}
     if mine:
         return mine
     if lines and lines[0].startswith(config.NOTE_PREFIX_WAS):

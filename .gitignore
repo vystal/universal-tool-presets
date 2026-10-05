@@ -1,8 +1,10 @@
 # Built release assets
 dist/
 
-# Local only: the Fusion test harness and its output
-tests/
+# Local only: the Fusion test harness and its output. Anchored, because
+# unanchored it matched every directory named tests at any depth, which
+# silently kept the add-in's own unit tests out of the repository.
+/tests/
 
 # Local working notes
 CLAUDE.md

@@ -68,6 +68,12 @@ class LibraryTool:
         # a dead config reference that emptied every tool's presets and made
         # the whole document look as though its presets had been retired.
         self.unreadable = 0
+        # Separately counted: a preset that builds fine and yields no values is
+        # not a preset that failed to build, and it is the more dangerous of
+        # the two. Every comparison works on the names both sides share, so an
+        # empty one shares nothing and nothing ever differs. That used to read
+        # as "matches the library".
+        self.valueless = 0
         for index in range(tool.presets.count):
             try:
                 preset = LibraryPreset(tool.presets.item(index), self.id,
@@ -75,6 +81,8 @@ class LibraryTool:
             except Exception:
                 self.unreadable += 1
                 continue
+            if not preset.values:
+                self.valueless += 1
             self.presets[preset.id] = preset
 
 
@@ -180,7 +188,7 @@ def read(report, do_events=None, wanted=None):
         return tools, False, False
 
     assets = _walk(libraries, url)
-    read_count = preset_count = unreadable = 0
+    read_count = preset_count = unreadable = valueless = 0
     stopped_early = False
     # The tools this document actually uses, if the caller knows them. Each
     # library is a request over the network, measured between three and eight
@@ -206,6 +214,7 @@ def read(report, do_events=None, wanted=None):
                 tools[tool.id] = tool
                 preset_count += len(tool.presets)
                 unreadable += tool.unreadable
+                valueless += tool.valueless
             if do_events is not None and index % config.OPERATIONS_PER_CHUNK == 0:
                 do_events()
 
@@ -219,6 +228,12 @@ def read(report, do_events=None, wanted=None):
 
     report.note("read the Hub libraries",
                 libraries=read_count, tools=len(tools), presets=preset_count)
+    if valueless:
+        report.note("SOME PRESETS HELD NO VALUES AT ALL", count=valueless,
+                    consequence=("operations using them cannot be judged, so "
+                                 "they are reported as unknown rather than "
+                                 "current; a green note here would have meant "
+                                 "nothing to do"))
     if unreadable:
         report.note("SOME PRESETS COULD NOT BE READ", count=unreadable,
                     consequence=("operations using them will look as though "
