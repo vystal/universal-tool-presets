@@ -81,6 +81,12 @@ def setup_plan(setup, counts):
     wanted = merge(existing, line)
     if wanted != (existing or ""):
         changes["note"] = {"from": existing or "", "to": wanted}
+    if colour is None and _ours_in(existing):
+        # Nothing tracked in here any more, usually because the last tracked
+        # operation was deleted. Same as an operation: the colour comes off
+        # with the line, or the setup keeps a yellow "look in here" over a
+        # note that no longer exists.
+        colour = _was_icon(setup) or config.ICON_DEFAULT
     if colour is not None and _icon(setup) != colour:
         changes["icon"] = {"from": _icon(setup), "to": colour}
     return changes
@@ -130,6 +136,21 @@ def _was_icon(owner):
     return None
 
 
+def _marked_before(owner):
+    """Whether the add-in has written a record on this one.
+
+    Asked rather than inferred from the verdict, because the verdict's record
+    is a checked one: state._record withholds it the moment the operation
+    moves to a different preset. The attribute is still sitting there, and
+    for "has this ever been marked" that is the honest question.
+    """
+    try:
+        return owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
+                                           config.KEY_RECORD) is not None
+    except Exception:
+        return False
+
+
 def _ours_in(existing):
     """Whether our line is in a note at all."""
     return any(line.startswith(config.NOTE_PREFIX)
@@ -168,6 +189,14 @@ def plan(operation, verdict, during_their_edit=False):
         changes["note"] = {"from": existing or "", "to": wanted}
 
     colour = config.ICON_FOR_STATE.get(verdict["state"])
+    if colour is None and _marked_before(operation):
+        # An operation that has left the tracked states: its preset was
+        # retired, or somebody moved it off a UTP. The line comes off, and
+        # the colour has to come off with it. Leaving it was worse than
+        # saying nothing: a green dot means "on the current feeds, nothing to
+        # do" and no note means "never on a shop preset", so the operation
+        # showed both at once and the green was a lie.
+        colour = _was_icon(operation) or config.ICON_DEFAULT
     if colour is not None:
         now = _icon(operation)
         if now != colour:
@@ -178,7 +207,15 @@ def plan(operation, verdict, during_their_edit=False):
         # What the icon was before any of this, so unmarking can put it
         # back. A note's own text is kept carefully and a colour somebody
         # chose deliberately was simply overwritten, which is inconsistent.
-        was = _icon(operation)
+        #
+        # Whatever a previous record says comes first. A record is rewritten
+        # whenever the operation moves to a different preset, which is the
+        # one action this add-in exists to encourage, and reading the live
+        # icon at that moment captured the add-in's own green as "the colour
+        # it had before the add-in touched it". Remove all notes then painted
+        # an up-to-date operation yellow, and a red one somebody had marked
+        # by hand stayed lost.
+        was = _was_icon(operation) or _icon(operation)
         if was is not None:
             wanted_record["i"] = was
         changes["record"] = wanted_record
@@ -351,7 +388,10 @@ def describe(changes):
         parts.append("icon %s -> %s" % (changes["icon"]["from"] or "none",
                                         changes["icon"]["to"]))
     if "record" in changes:
-        parts.append("adopt")
+        # strip() puts a removal in the same slot, and calling that "adopt"
+        # made the report of taking the marks out read as putting them in.
+        parts.append("forget which preset it came from"
+                     if "remove" in changes["record"] else "adopt")
     return ", ".join(parts) or "nothing"
 
 
