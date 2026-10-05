@@ -287,56 +287,37 @@ def mark_document(document, why):
 
 
 class _DocumentSaving(adsk.core.DocumentEventHandler):
-    """The backlog, at the one moment a pass of any size is safe."""
+    """Watches for a save that nothing marked first.
+
+    This used to carry a second copy of the whole marking pass, for when
+    marking happened during a save rather than before it. Marking before the
+    save won that argument months ago, so the copy was unreachable, and it had
+    already drifted from the live one it was copied from.
+
+    What it does now is the job that copy could not: it fires for every save,
+    whatever Fusion called the command, so it can say when a save happened that
+    the command hook did not recognise. That matters because the hook matches
+    command ids exactly, and exact matching fails quietly -- a build that names
+    its save something else would simply stop being marked, with nothing
+    anywhere saying so. Now there is a line in the log.
+    """
 
     def notify(self, args):
         try:
             document = getattr(args, "document", None)
-            if config.MARK_BEFORE_SAVE:
-                # Already done, before this save began. Doing it here would
-                # land after Fusion's snapshot and dirty the file again.
-                return
-            from . import passes
-            report = _Quiet()
-            tools, ok = library.cached(report)
-            if not ok:
+            name = getattr(document, "name", "?")
+            marked = _state.pop("marked before save", None)
+            if marked is None:
                 diagnostics.session_log(
-                    "save seen, nothing decided",
-                    reason="the Hub libraries could not be read")
+                    "A SAVE THAT NOTHING MARKED FIRST", document=name,
+                    reason=("no command this build raised matched "
+                            "config.SAVE_COMMANDS, so the document was saved "
+                            "without being brought up to date"),
+                    commands_seen_recently=sorted(_commands)[-12:],
+                    fix="add the id Fusion actually raised to SAVE_COMMANDS")
                 return
-            all_operations = list(passes.operations_of(document))
-            allowed, held_back = _may_write(document, all_operations)
-            counts = {}
-            planned = wrote = failed = 0
-            # Shared across the pass, as the button's does: six operations on
-            # one preset read its values six times otherwise.
-            seen = {}
-            for index, operation in enumerate(all_operations):
-                verdict = state.reconcile(operation, tools, seen)
-                counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
-                would = marks.plan(operation, verdict)
-                if not would:
-                    continue
-                planned += 1
-                if not allowed:
-                    continue
-                try:
-                    marks.apply(operation, would)
-                    wrote += 1
-                    # After each write, not every twentieth operation: a
-                    # marked operation costs two writes at about 150
-                    # milliseconds and twenty of those is six seconds with
-                    # Fusion frozen mid-save.
-                    adsk.doEvents()
-                except Exception:
-                    failed += 1
-                if index % config.OPERATIONS_PER_CHUNK == 0:
-                    adsk.doEvents()
-            _state["wrote_during_save"] = wrote
-            diagnostics.session_log(
-                "save seen", document=getattr(document, "name", "?"),
-                verdicts=counts, would_mark=planned, wrote=wrote,
-                failed=failed or None, held_back=held_back)
+            diagnostics.session_log("saved", document=name,
+                                    marked_before_it=marked)
         except Exception as exc:
             diagnostics.session_log("save handler failed", error=str(exc))
 
@@ -358,7 +339,6 @@ class _DocumentSaved(adsk.core.DocumentEventHandler):
                 "saved", document=getattr(document, "name", "?"),
                 modified_again=getattr(document, "isModified", "unknown"),
                 wrote_before_the_save=_state.pop("wrote_before_save", 0),
-                wrote_during_the_save=_state.pop("wrote_during_save", 0),
                 note="modified_again here can read false before Fusion has "
                      "settled the flag; what the title bar says is the truth")
         except Exception:
@@ -369,14 +349,20 @@ class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
     def notify(self, args):
         try:
             _commands.add(str(args.commandId))
-            if (config.MARK_BEFORE_SAVE and not marks.busy()
-                    and settings.on("on") and settings.on("save")
-                    and not _running["undo"]
-                    and str(args.commandId) in config.SAVE_COMMANDS):
-                app = adsk.core.Application.get()
-                _state["wrote_before_save"] = mark_document(
-                    app.activeDocument,
-                    "marking before the save (%s)" % args.commandId)
+            if str(args.commandId) in config.SAVE_COMMANDS:
+                # Recorded whatever happens next, so documentSaving can tell a
+                # save nothing recognised from one that was deliberately left
+                # alone. Without that, a build naming its save something else
+                # would stop being marked in silence.
+                _state["marked before save"] = "held back"
+                if (not marks.busy() and not _running["undo"]
+                        and settings.on("on") and settings.on("save")):
+                    app = adsk.core.Application.get()
+                    wrote = mark_document(
+                        app.activeDocument,
+                        "marking before the save (%s)" % args.commandId)
+                    _state["wrote_before_save"] = wrote
+                    _state["marked before save"] = "%d written" % wrote
             if args.commandId in ("UndoCommand", "RedoCommand"):
                 _running["undo"] = True
                 # Logged so the guard is visible. Without this an undo that

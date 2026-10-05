@@ -300,3 +300,100 @@ def test_a_higher_schema_stops_it_writing_and_an_unreadable_one_counts_as_higher
     assert compat.may_write(config.SCHEMA + 1)[0] is False
     # survey() answers 0 when nothing carries a schema, not None.
     assert compat.may_write(0)[0] is True, "no data is not newer data"
+
+
+# ---------------------------------------------------------------------------
+# The copy in a document's own tool library
+# ---------------------------------------------------------------------------
+
+class FakePreset:
+    def __init__(self, name, held=None, params=None):
+        self.name = name
+        self.id = "copy-" + name
+        self.attributes = Attrs(held or {})
+        self._params = dict(params or {})
+
+    class _Value:
+        def __init__(self, value):
+            self.value = value
+
+    class _Param:
+        def __init__(self, name, value):
+            self.name = name
+            self.value = FakePreset._Value(value)
+
+    @property
+    def parameters(self):
+        items = [FakePreset._Param(n, v) for n, v in self._params.items()]
+
+        class Coll:
+            count = len(items)
+
+            def item(self, i):
+                return items[i]
+
+        return Coll()
+
+
+class FakeTool:
+    def __init__(self, items):
+        self._items = list(items)
+
+    @property
+    def presets(self):
+        items = self._items
+
+        class Coll:
+            count = len(items)
+
+            def item(self, i):
+                return items[i]
+
+        return Coll()
+
+
+class FakeLibraryPreset:
+    def __init__(self, name, values_now):
+        self.name = name
+        self.id = "lib-" + name
+        self.values = dict(values_now)
+        self.version = 2
+
+
+def test_a_value_that_will_not_go_in_does_not_cause_a_new_copy_every_pass():
+    """The churn. presets.apply copies the library's values into a fresh
+    preset; any that will not take leave the copy differing from the library
+    for ever, so plan() retired and re-added on every single pass and the
+    dropdown grew without end. A copy records what the library held when it was
+    made, and plan asks whether the library has moved since.
+    """
+    library_preset = FakeLibraryPreset("P Titanium",
+                                       {"tool_feedCutting": 1200.0,
+                                        "tool_coolant": "flood"})
+    # The copy holds the feed but not the coolant: the write was accepted and
+    # discarded, which is what was measured in a real document.
+    copy = FakePreset(
+        "P Titanium v2 " + config.LATEST_SUFFIX,
+        held={config.KEY_SOURCE_PRESET: library_preset.id,
+              config.KEY_VALUES: json.dumps(library_preset.values)},
+        params={"tool_feedCutting": 1200.0, "tool_coolant": "mist"})
+    tool = FakeTool([copy])
+
+    assert presets.plan(tool, library_preset) == {}, "nothing has moved"
+
+    # Now the shop really does change a feed.
+    library_preset.values["tool_feedCutting"] = 1500.0
+    moved = presets.plan(tool, library_preset)
+    assert moved.get("add") == "P Titanium"
+    assert "tool_feedCutting" in moved.get("because", [])
+
+
+def test_a_copy_that_recorded_nothing_still_gets_compared():
+    """Copies made before this existed have no snapshot. They fall back to the
+    old comparison, and the plan says which comparison it used."""
+    library_preset = FakeLibraryPreset("P Copper", {"tool_feedCutting": 900.0})
+    copy = FakePreset("P Copper v1 " + config.LATEST_SUFFIX,
+                      held={config.KEY_SOURCE_PRESET: library_preset.id},
+                      params={"tool_feedCutting": 900.0})
+    assert presets.plan(FakeTool([copy]), library_preset) == {}
+    assert presets.stood_for(copy) is None

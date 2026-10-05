@@ -114,17 +114,18 @@ MAY_ADD_PRESETS = True
 MAY_TIDY_PRESETS = True
 MAY_BUMP_LIBRARY_VERSIONS = True
 
-# Mark when the Save command starts rather than when the save is under way.
+# Marking happens when the Save command starts, not while the save is under
+# way. documentSaving fires once Fusion has already taken its snapshot, so
+# notes written there land after it and the document is dirty the moment the
+# save finishes: you save, and have to save again. commandStarting fires before
+# the command runs, so what is written there is part of the save that follows.
 #
-# documentSaving fires once Fusion has already taken its snapshot, so notes
-# written there land after it and the document is dirty the moment the save
-# finishes: you save, and have to save again. Measured by hand; a check of
-# isModified inside documentSaved says otherwise because the flag has not
-# settled by then, which is a good reason not to trust it.
-#
-# commandStarting fires before the command runs, so what is written there is
-# part of the save that follows.
-MARK_BEFORE_SAVE = True
+# This was a switch, MARK_BEFORE_SAVE, with a second copy of the whole marking
+# pass behind it for the False case. It had been True since the day it was
+# added, so the copy was unreachable and had already drifted from the one it
+# was copied from. Both are gone. documentSaving now does the job that copy
+# could not: it fires for every save however Fusion named the command, so it
+# can say when one happened that the hook below did not recognise.
 
 # What Fusion calls saving a document. Matched exactly.
 #

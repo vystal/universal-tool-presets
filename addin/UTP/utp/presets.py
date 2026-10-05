@@ -13,6 +13,7 @@ only.
 """
 
 import datetime
+import json
 
 from . import compat, config, values
 
@@ -95,6 +96,30 @@ def version_of(preset):
     except Exception:
         return None
     return found.value if found else None
+
+
+def stood_for(preset):
+    """The library values this copy was made to hold, if it recorded them.
+
+    The question plan() needs answered is "has the library moved on since this
+    copy was made", and the only honest way to ask it is to compare the library
+    against what the library held at the time. Comparing against the copy's own
+    values asks something subtly different -- "does the copy match the library"
+    -- and gets a permanent yes-it-differs for any value that would not go in.
+    That turned into a new "(latest)" preset on every pass, for ever.
+    """
+    try:
+        found = preset.attributes.itemByName(config.ATTRIBUTE_GROUP,
+                                             config.KEY_VALUES)
+    except Exception:
+        return None
+    if found is None:
+        return None
+    try:
+        held = json.loads(found.value)
+        return held if isinstance(held, dict) else None
+    except Exception:
+        return None
 
 
 def source_of(preset):
@@ -207,13 +232,26 @@ def plan(tool, library_preset):
     copy = claiming_latest(tool, library_preset.id)
     if copy is None:
         return {"add": library_preset.name}
-    stale = values.differences(values.scalars(copy), library_preset.values)
+    snapshot = stood_for(copy)
+    if snapshot is not None:
+        # The library then against the library now. A value that never made it
+        # into the copy is on neither side of this, so it cannot make the copy
+        # look stale on every pass.
+        stale = values.differences(library_preset.values, snapshot)
+    else:
+        # A copy made before copies recorded what they stood for. Falling back
+        # to its own values is what the churn came from, so it is worth saying
+        # which comparison was used when this happens.
+        stale = values.differences(values.scalars(copy), library_preset.values)
     if stale:
         # The library has moved on again since this copy was made. The copy
         # keeps its values, because operations may be using it; it just stops
         # claiming to be the newest.
         return {"retire": copy.name, "add": library_preset.name,
-                "because": stale[:4]}
+                "because": stale[:4],
+                "compared": "the library against what the copy stood for"
+                            if snapshot is not None
+                            else "the copy's own values, which it did not record"}
     return {}
 
 
@@ -246,6 +284,11 @@ def apply(cam, tool, library_preset, intended):
         try:
             fresh.attributes.add(config.ATTRIBUTE_GROUP,
                                  config.KEY_SOURCE_PRESET, library_preset.id)
+            # What the library held when this copy was made, so the next pass
+            # can ask whether the library has moved rather than whether every
+            # value went in. Written even when some did not: that is the point.
+            fresh.attributes.add(config.ATTRIBUTE_GROUP, config.KEY_VALUES,
+                                 json.dumps(library_preset.values))
             compat.stamp(fresh)
             if library_preset.version:
                 # Recorded now, because later the library will have moved on
