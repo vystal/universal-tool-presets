@@ -134,9 +134,23 @@ def cached(report, do_events=None, force=False, wanted=None):
     first time and 4.0 the second, which inside somebody's command would look
     like Fusion hanging. So an edit uses this only when it is already warm,
     and says so when it is not.
+
+    A reading that stopped as soon as one document's tools were found is
+    handed back to the caller that asked for it and never kept, because a
+    tool missing from it is indistinguishable from a tool that is not in the
+    shop libraries at all. The second of those means "not a UTP tool", which
+    takes the note off an operation: check one document, then save another
+    whose tools live in a library the reading never reached, and every note
+    in it would be deleted. The caller that named its tools is about to look
+    for exactly those, so a short reading is no risk to it alone.
+
+    Nothing is lost by not keeping it. The one caller that names tools asks
+    with force anyway, so it re-reads whatever is held.
     """
     if force or _cache["tools"] is None:
-        tools, ok = read(report, do_events, wanted)
+        tools, ok, whole = read(report, do_events, wanted)
+        if not whole:
+            return tools, ok
         _cache["tools"], _cache["ok"] = tools, ok
     return _cache["tools"], _cache["ok"]
 
@@ -148,9 +162,11 @@ def forget():
 def read(report, do_events=None, wanted=None):
     """Every tool in every Hub library, keyed by tool id.
 
-    Returns (tools, ok). ok is False when the library could not be reached,
-    in which case nothing should be decided: a note that claims an operation
-    is current would be a guess.
+    Returns (tools, ok, whole). ok is False when the library could not be
+    reached, in which case nothing should be decided: a note that claims an
+    operation is current would be a guess. whole is False when the reading
+    stopped as soon as the named tools were found, so what is missing from it
+    means nothing.
     """
     tools = {}
     try:
@@ -158,13 +174,14 @@ def read(report, do_events=None, wanted=None):
         url = libraries.urlByLocation(adsk.cam.LibraryLocations.HubLibraryLocation)
     except Exception:
         report.failed("the Hub library could not be opened")
-        return tools, False
+        return tools, False, False
     if url is None:
         report.note("no Hub library on this account; nothing to compare against")
-        return tools, False
+        return tools, False, False
 
     assets = _walk(libraries, url)
     read_count = preset_count = unreadable = 0
+    stopped_early = False
     # The tools this document actually uses, if the caller knows them. Each
     # library is a request over the network, measured between three and eight
     # seconds for all eight of them, and a document using two of them has no
@@ -195,7 +212,9 @@ def read(report, do_events=None, wanted=None):
         if looking_for and looking_for.issubset(tools):
             report.note("stopped early: every tool this document uses was "
                         "found", libraries_read=read_count,
-                        of=len(assets))
+                        of=len(assets),
+                        note="this reading describes this document only")
+            stopped_early = True
             break
 
     report.note("read the Hub libraries",
@@ -204,4 +223,4 @@ def read(report, do_events=None, wanted=None):
         report.note("SOME PRESETS COULD NOT BE READ", count=unreadable,
                     consequence=("operations using them will look as though "
                                  "their preset was retired, which is wrong"))
-    return tools, bool(tools)
+    return tools, bool(tools), not stopped_early
