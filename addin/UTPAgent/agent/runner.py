@@ -16,6 +16,19 @@ runs on the main thread next time Fusion is idle.
 So: a worker thread watches a folder. A job file appears. It fires the event.
 The handler runs the job on the main thread and writes the answer next to it.
 
+What a job must not do, learned by doing it three times. A custom event is
+handled "when Fusion is idle", and anything that changes which document or
+workspace is in front of Fusion stops it becoming idle again: documents.open(),
+and activating a workspace on a document that has just been created, each left
+the queue permanently undrained with Fusion still reporting that it responds and
+no dialog on screen. The worker thread keeps beating, the main thread never
+takes another job, and the only way out is to restart Fusion.
+
+So jobs read and write data, and the document they work on is the one already
+open. Opening it is a person's job, or the caller restarts Fusion and asks for
+it. Creating a document and working in it inside one job is fine; it is coming
+back for it in a later job that does not survive.
+
 The queue folder is the trust boundary, and it is a real one: anything that can
 write a file there runs code inside Fusion. It lives under the user's own
 profile, there is no socket and nothing listening on the network, and the agent
