@@ -469,14 +469,38 @@ class _Quiet:
         diagnostics.session_log("failed", message=message)
 
 
+# Fusion objects a subscription depends on. Nothing reads these; they exist so
+# the garbage collector cannot take a listener away from under the add-in.
+_held = {}
+
+
 def arm(app):
     """Start listening. Returns a list of what was armed, for the report."""
     armed = []
     try:
-        cam_events = adsk.cam.CAMManager.get().camEventManager
+        # Both the manager and the event are kept, not just the handler.
+        #
+        # They used to be locals. The handler survived, because it went into
+        # _handlers, but the CAMEventManager and the event wrapper went out of
+        # scope the moment arm() returned, and once Python collected them the
+        # subscription went with them. The symptom was an edit handler that
+        # worked for the first minutes of a session and then went silent, which
+        # is exactly what it looks like from the outside: change a feed, and the
+        # note does not move. Measured today -- two parameter changes and a note
+        # write produced no handler call at all, in a session where "listening"
+        # had been logged perfectly happily.
+        #
+        # Also why operationBaseChanged is read once into a variable rather than
+        # twice: the property hands back a new wrapper each time it is read, so
+        # subscribing to one and remembering another meant disarm() was removing
+        # the handler from an object that was not the one holding it.
+        manager = adsk.cam.CAMManager.get().camEventManager
+        event = manager.operationBaseChanged
         handler = _OperationChanged()
-        cam_events.operationBaseChanged.add(handler)
-        _handlers.append((cam_events.operationBaseChanged, handler))
+        event.add(handler)
+        _held["cam events"] = manager
+        _held["operation event"] = event
+        _handlers.append((event, handler))
         armed.append("operation edits")
     except Exception as exc:
         diagnostics.session_log("operationBaseChanged unavailable", error=str(exc))
@@ -513,5 +537,7 @@ def disarm(app):
         except Exception:
             continue
     del _handlers[:]
+    # Released only now, after the handlers have been taken off them.
+    _held.clear()
     diagnostics.session_log("stopped listening")
     diagnostics.close_session()
