@@ -412,3 +412,31 @@ def test_an_operation_is_left_alone_when_something_could_not_be_established():
     # without the flag, an unknown verdict does take the note off, which is
     # right when the add-in genuinely knows the preset holds nothing
     assert "note" in marks.plan(owner, verdict(state.UNKNOWN, record=ADOPTED))
+
+
+def test_an_operation_on_a_preset_that_governs_the_cut_keeps_saying_so():
+    """The warning used to vanish at the moment it mattered. "changes the cut"
+    attaches to behind, so the instant somebody picked the newer preset the
+    verdict became current and the note went plain green -- and the regeneration
+    is needed after the pick, not before.
+
+    Measured on 6 October: switching a preset moved an operation's feed and left
+    isToolpathValid True, so Fusion does not treat the toolpath as stale and
+    there is nothing for the add-in to read. So the note says it standing, while
+    the operation is on a preset that decides the shape of the cut.
+    """
+    plain = marks.note_line(verdict(state.CURRENT))
+    assert config.NOTE_SETS_THE_CUT not in plain
+
+    governed = marks.note_line(verdict(state.CURRENT,
+                                       carriesShape=["tool_stepdown"]))
+    assert config.NOTE_SETS_THE_CUT in governed
+    assert governed.endswith(config.NOTE_SUFFIX)
+    assert all(ord(c) < 128 for c in governed)
+
+    # and the two wordings are not the same sentence: one is about an update
+    # that has not happened, the other about a toolpath that may be wrong now
+    behind = marks.note_line(verdict(state.BEHIND,
+                                     changesTheCut=["tool_stepdown"]))
+    assert config.NOTE_CHANGES_THE_CUT in behind
+    assert config.NOTE_SETS_THE_CUT not in behind

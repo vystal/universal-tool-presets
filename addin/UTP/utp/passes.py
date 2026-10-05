@@ -870,6 +870,21 @@ def run(app, allow_writing=True):
             else:
                 headline = config.CHECKED % len(operations)
                 tail = config.CHECKED_TAIL % planned
+            # Said once, after a check, rather than trusting somebody to read
+            # every note. Picking a preset does not rebuild a toolpath and
+            # Fusion does not mark one as needing it, so this is the only place
+            # the add-in can reliably put the instruction in front of the person
+            # who just acted on its advice.
+            governs = [v for _op, v in decided if v.get("carriesShape")]
+            if governs:
+                tail += config.REGENERATE_TAIL % len(governs)
+                report.note("OPERATIONS ON PRESETS THAT SET THE CUT",
+                            count=len(governs),
+                            operations=[v["operation"] for v in governs][:10],
+                            consequence=("their toolpaths hold whatever shape "
+                                         "they were last generated with; "
+                                         "regenerate before posting"))
+
             events_seen = diagnostics.session_count()
             if events_seen:
                 tail += "\n\n" + config.EVENTS_SEEN % (events_seen,

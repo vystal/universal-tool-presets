@@ -38,7 +38,14 @@ def note_line(verdict):
     """
     kind = verdict["state"]
     if kind == state.CURRENT:
-        return ours(_named(verdict, verdict.get("libraryVersion")))
+        said = _named(verdict, verdict.get("libraryVersion"))
+        if verdict.get("carriesShape"):
+            # On the shop's current values, and on a preset that decides the
+            # depth of cut. Green with nothing else said would mean "nothing to
+            # do" over a toolpath that may still hold the old shape.
+            said = "%s %s %s" % (said, config.NOTE_SEPARATOR,
+                                 config.NOTE_SETS_THE_CUT)
+        return ours(said)
     if kind == state.BEHIND:
         newer = verdict.get("libraryVersion")
         # "v2 - v3 available" when both are known. When the document's own

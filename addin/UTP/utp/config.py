@@ -362,7 +362,48 @@ NOTE_UPDATE = "update available"
 SHAPE_PARAMETERS = ("tool_stepdown", "tool_stepover", "tool_rampAngle",
                     "tool_finishingStepdown", "tool_finishingStepover",
                     "tool_threadPitch")
+
+# The ones that decide where the tool goes for the whole path, rather than for
+# one entry move. A ramp angle changes the shape of a ramp into the cut; a
+# stepdown changes every pass in it.
+#
+# Two lists because the two warnings have to answer different questions. "This
+# update changes the cut" is about a value that moved, and a ramp angle moving
+# is worth saying. "This operation is on a preset that sets the cut" is about a
+# value merely being present, and tool_rampAngle is in the ordinary fifteen that
+# nearly every preset holds -- so the standing warning landed on every tracked
+# operation in the shop, which is noise, and noise is how a warning stops being
+# read. Measured: with rampAngle in it, 4 of 4 tracked operations on the bench
+# said "sets the cut"; without, none do.
+CUT_DEPTH_PARAMETERS = ("tool_stepdown", "tool_stepover",
+                        "tool_finishingStepdown", "tool_finishingStepover",
+                        "tool_threadPitch")
 NOTE_CHANGES_THE_CUT = "changes the cut"
+
+# And what an operation already on one of those says. Not the same sentence:
+# "changes the cut" is about an update that has not happened yet, this is about
+# a toolpath that may already be wrong.
+#
+# It has to be said standing, not once, because the add-in cannot tell a
+# regenerated toolpath from a stale one. Measured on 6 October: switching an
+# operation's preset moved its feed from 2000 to 700 and left isToolpathValid
+# True and operationState 0, so Fusion does not treat a toolpath as stale when
+# the values behind it change. There is nothing to read, so there is nothing to
+# clear the warning on, so it stays while the operation is on a preset that
+# governs the shape of the cut.
+#
+# Rare by construction: of 441 presets in these libraries three carried a
+# stepdown or stepover, and all three were the preset Fusion makes by itself,
+# which 0.13.0 stopped treating as a UTP. So this is dormant here until somebody
+# puts a depth of cut on a preset they made. That is the right time for it to
+# start speaking.
+NOTE_SETS_THE_CUT = "sets the cut"
+
+# Said once after a check, rather than relying on somebody reading every note.
+REGENERATE_TAIL = ("\n\n%d operation(s) are on presets that set the depth of "
+                   "cut or stepover. Regenerate those before posting: picking a "
+                   "preset does not rebuild the toolpath, and Fusion does not "
+                   "mark it as needing it.")
 
 # What the newest copy of a preset is called in the dropdown, so the two
 # entries can be told apart by somebody who knows nothing about any of this.

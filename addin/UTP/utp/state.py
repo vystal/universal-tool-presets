@@ -179,6 +179,15 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
         return verdict
     verdict["preset"] = library_preset.name
 
+    # Whether this preset governs the shape of the cut and not only the rate.
+    # Set whatever the verdict turns out to be, because an operation already on
+    # one is the dangerous case: its toolpath may hold the old shape and nothing
+    # in Fusion says so.
+    carries = [name for name in library_preset.values
+               if name in config.CUT_DEPTH_PARAMETERS]
+    if carries:
+        verdict["carriesShape"] = carries
+
     if not library_preset.values:
         # The same hole from the library side: a preset that was built but
         # yielded no values would make every operation on it read as current.
