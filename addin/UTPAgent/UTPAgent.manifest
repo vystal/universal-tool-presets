@@ -1,0 +1,11 @@
+{
+    "autodeskProduct": "Fusion360",
+    "type": "addin",
+    "author": "",
+    "description": {
+        "": "UTP test agent. Runs jobs dropped into Documents/UTP diagnostics/agent on Fusion's main thread and writes the answers back. For developing the add-in; not for a shop machine."
+    },
+    "supportedOS": "windows|mac",
+    "editEnabled": true,
+    "runOnStartup": true
+}
