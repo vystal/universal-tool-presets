@@ -195,6 +195,23 @@ def is_a_utp(name):
     return (name or "").strip().lower() not in NOT_A_UTP_NAMES
 
 
+# How old a reading of the shop libraries may be before a save takes another,
+# in seconds. Half an hour.
+#
+# They used to be read once per Fusion session, full stop, and machinists leave
+# Fusion open for days. So somebody changed a preset at nine, and every
+# operation in every job carried a green "running the shop's current feeds"
+# note until Fusion was next restarted. That is the precise failure this add-in
+# exists to prevent, wearing a green dot that says it did not happen, which is
+# worse than no add-in: before it, nobody believed anything.
+#
+# Only a save takes the new reading, never an edit: an edit must not pay three
+# to eight seconds inside somebody's own command, which is the reason the cache
+# exists at all. So the cost is one read per half hour of working, on a save,
+# and the shop's changes reach a document within half an hour of saving it.
+# Set it to 0 to go back to once a session.
+LIBRARY_STALE_AFTER = 1800
+
 # ---------------------------------------------------------------------------
 # Where UTPs live
 # ---------------------------------------------------------------------------
@@ -430,8 +447,19 @@ UNMARK_CONFIRM = ("Remove every UTP note and colour from this "
 
 COMMAND_ID = "UTPCheckDocument"
 COMMAND_NAME = "Check this document"
-COMMAND_TOOLTIP = ("Works out what the UTP add-in would say about every "
-                   "operation here, and writes it to a file. Changes nothing.")
+# "Changes nothing" was left on this from when the add-in genuinely changed
+# nothing. It is the first button in the panel, it is named the obvious thing,
+# it runs without a confirmation, and it writes notes, colours and records to
+# every tracked operation, adds presets to this document's tool library, removes
+# copies nothing uses, and writes version numbers into the shop's shared
+# library. A tooltip promising the opposite of all that is the likeliest way
+# somebody comes to grief here.
+COMMAND_TOOLTIP = ("Brings this document up to date: notes and colours on every "
+                   "operation, and the newer presets added to its dropdowns. "
+                   "Writes version numbers to the shop library too, unless you "
+                   "turn that off under Switches. One Ctrl+Z takes the document "
+                   "side back. Use Check without changing anything to look "
+                   "first.")
 
 UNMARK_COMMAND_ID = "UTPRemoveMarks"
 UNMARK_COMMAND_NAME = "Remove all notes"

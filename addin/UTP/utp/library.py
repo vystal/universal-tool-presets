@@ -5,6 +5,8 @@ objects, which go stale after the library is touched. Reading every machine
 library takes a moment, so a pass does it once and hands the result around.
 """
 
+import time
+
 import adsk.cam
 
 from . import config, values, versions
@@ -137,7 +139,7 @@ def _walk(libraries, url, depth=0, path="", max_depth=6):
     return found
 
 
-_cache = {"tools": None, "ok": False}
+_cache = {"tools": None, "ok": False, "read at": 0.0, "missed": False}
 
 
 def warm():
@@ -145,7 +147,23 @@ def warm():
     return _cache["tools"] is not None
 
 
-def cached(report, do_events=None, force=False, wanted=None):
+def incomplete():
+    """Whether the last reading had a library it could not open.
+
+    Asked by the verdict, so an unmatched tool is left alone instead of being
+    called untracked on the strength of a reading that was missing a library.
+    """
+    return bool(_cache.get("missed"))
+
+
+def age():
+    """How long ago the libraries were read, in seconds, or None."""
+    if _cache["tools"] is None:
+        return None
+    return time.time() - _cache["read at"]
+
+
+def cached(report, do_events=None, force=False, wanted=None, stale_after=None):
     """The libraries, read once per session.
 
     An operation edit must not pay for a Hub read: it took 6.7 seconds the
@@ -165,16 +183,23 @@ def cached(report, do_events=None, force=False, wanted=None):
     Nothing is lost by not keeping it. The one caller that names tools asks
     with force anyway, so it re-reads whatever is held.
     """
-    if force or _cache["tools"] is None:
+    old = (stale_after and _cache["tools"] is not None
+           and time.time() - _cache["read at"] > stale_after)
+    if force or _cache["tools"] is None or old:
+        if old:
+            report.note("the reading of the shop libraries was old, so it was "
+                        "taken again",
+                        seconds_old=round(time.time() - _cache["read at"]))
         tools, ok, whole = read(report, do_events, wanted)
         if not whole:
             return tools, ok
         _cache["tools"], _cache["ok"] = tools, ok
+        _cache["read at"] = time.time()
     return _cache["tools"], _cache["ok"]
 
 
 def forget():
-    _cache["tools"], _cache["ok"] = None, False
+    _cache["tools"], _cache["ok"], _cache["read at"] = None, False, 0.0
 
 
 def read(report, do_events=None, wanted=None):
@@ -200,6 +225,13 @@ def read(report, do_events=None, wanted=None):
     assets = _walk(libraries, url)
     read_count = preset_count = unreadable = valueless = ignored = 0
     stopped_early = False
+    # Libraries that would not open. One of eight failing used to be a note in
+    # a log and nothing else: the tools in it were simply absent, so every
+    # operation using one read as "not a UTP tool", and that takes the note and
+    # the colour off. A yellow "v3 available" became no note at all, which both
+    # documentation pages define as "never put on a shop preset". The person
+    # sees nothing flagged and ships the old feeds.
+    missed = []
     # The tools this document actually uses, if the caller knows them. Each
     # library is a request over the network, measured between three and eight
     # seconds for all eight of them, and a document using two of them has no
@@ -210,8 +242,10 @@ def read(report, do_events=None, wanted=None):
             library = libraries.toolLibraryAtURL(asset_url)
         except Exception:
             report.failed("could not read library %s" % path)
+            missed.append(path)
             continue
         if library is None:
+            missed.append(path)
             continue
         read_count += 1
         for index in range(library.count):
@@ -254,4 +288,11 @@ def read(report, do_events=None, wanted=None):
         report.note("SOME PRESETS COULD NOT BE READ", count=unreadable,
                     consequence=("operations using them will look as though "
                                  "their preset was retired, which is wrong"))
+    if missed:
+        report.failed("SOME LIBRARIES WOULD NOT OPEN: %s" % ", ".join(missed))
+        report.note("what that means for this pass",
+                    consequence=("a tool from one of those cannot be found, so "
+                                 "operations using it are left exactly as they "
+                                 "are rather than being read as untracked"))
+    _cache["missed"] = bool(missed)
     return tools, bool(tools), not stopped_early

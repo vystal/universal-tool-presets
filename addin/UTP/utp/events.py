@@ -225,7 +225,8 @@ def mark_document(document, why):
         # one looks like the add-in being slow rather than the network being
         # read once.
         reading = time.time()
-        tools, ok = library.cached(report)
+        tools, ok = library.cached(report,
+                                   stale_after=config.LIBRARY_STALE_AFTER)
         reading = round(time.time() - reading, 2)
         if not ok:
             diagnostics.session_log("%s: nothing decided" % why,
@@ -289,7 +290,8 @@ def mark_document(document, why):
             if cam is not None:
                 try:
                     changed = passes._ensure_presets(cam, behind, tools,
-                                                     _Quiet(), True)
+                                                     _Quiet(), True,
+                                                     tidying=False)
                     if changed:
                         did.append("brought %d preset(s) into the document"
                                    % len(changed))
@@ -311,6 +313,21 @@ def mark_document(document, why):
                 except Exception as exc:
                     diagnostics.session_log(
                         "%s: could not bring presets in" % why, error=str(exc))
+
+        # The setups, but only when this save got all the way round. A setup
+        # note counts what is inside it, and a count taken from part of a
+        # document is a wrong number rather than an old one. Until now nothing
+        # but the button ever updated them, so somebody working with setups
+        # collapsed -- the person the setup note exists for -- was reading
+        # whatever was true when the button was last pressed, possibly never.
+        if looked >= len(all_operations) and allowed:
+            cam = _cam_of(document)
+            if cam is not None:
+                try:
+                    passes._mark_setups(cam, tools, _Quiet(), True)
+                except Exception as exc:
+                    diagnostics.session_log("%s: setups not marked" % why,
+                                            error=str(exc))
 
         left = len(all_operations) - looked
         _state.setdefault("save cursor", {})[_key(document)] = (
@@ -428,12 +445,27 @@ class _CommandTerminated(adsk.core.ApplicationCommandEventHandler):
 
 
 class _Quiet:
-    """A report that goes to the session log instead of a file of its own."""
+    """A report that goes to the session log instead of a file of its own.
+
+    It has to answer everything diagnostics.Report answers, because the pass
+    functions are shared and they count what they wrote and consult whether
+    anything failed. It did not, so the moment the save path started using
+    _ensure_presets, report.wrote raised AttributeError inside a try and was
+    logged as "could not bring in that preset" -- the opposite of what had
+    happened -- and report.failures raised outside one and took the whole
+    preset step down, swallowed. The save path silently brought in no presets
+    at all, which is exactly the fault it had been changed to fix.
+    """
+
+    def __init__(self):
+        self.wrote = 0
+        self.failures = 0
 
     def note(self, message, **detail):
         diagnostics.session_log("note", message=message, **detail)
 
     def failed(self, message):
+        self.failures += 1
         diagnostics.session_log("failed", message=message)
 
 

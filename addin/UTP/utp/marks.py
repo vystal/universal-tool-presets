@@ -231,6 +231,11 @@ def plan(operation, verdict, during_their_edit=False):
     re-running after a crash harmless.
     """
     changes = {}
+    if verdict.get("leave alone"):
+        # Something about this operation could not be established, so nothing
+        # here is a judgement worth acting on. Whatever note it already has
+        # stays: saying nothing keeps it, where saying "untracked" takes it off.
+        return changes
     if not settings.on("mark"):
         # Switched off: it still reads and reports, and writes nothing to an
         # operation at all. Records included, because an invisible attribute

@@ -397,3 +397,18 @@ def test_a_copy_that_recorded_nothing_still_gets_compared():
                       params={"tool_feedCutting": 900.0})
     assert presets.plan(FakeTool([copy]), library_preset) == {}
     assert presets.stood_for(copy) is None
+
+
+def test_an_operation_is_left_alone_when_something_could_not_be_established():
+    """A library that would not open used to make every tool in it look absent,
+    so operations using one read as untracked and had their notes and colours
+    removed. The person then sees nothing flagged and ships the old feeds. A
+    verdict that cannot be reached must leave what is there alone."""
+    owner = Owner(marks.note_line(verdict(state.BEHIND)) + "\nCHECK Z",
+                  ADOPTED, "Yellow")
+    unsure = verdict(state.UNKNOWN, record=ADOPTED)
+    unsure["leave alone"] = True
+    assert marks.plan(owner, unsure) == {}
+    # without the flag, an unknown verdict does take the note off, which is
+    # right when the add-in genuinely knows the preset holds nothing
+    assert "note" in marks.plan(owner, verdict(state.UNKNOWN, record=ADOPTED))

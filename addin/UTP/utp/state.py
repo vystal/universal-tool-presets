@@ -59,6 +59,17 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
     # Kept so nothing has to serialise the tool again to learn its id.
     verdict["toolId"] = found
     if library_tool is None:
+        from . import library as _library
+        if _library.incomplete():
+            # A library would not open this time, so "not in any Hub library"
+            # is not a thing that can honestly be said. Left exactly as it is:
+            # saying nothing keeps whatever note is already there, where saying
+            # "untracked" would take it off.
+            verdict["state"] = UNKNOWN
+            verdict["leave alone"] = True
+            verdict["why"] = ("a shop library would not open, so whether its "
+                              "tool is a UTP cannot be told")
+            return verdict
         verdict["state"] = NOT_UTP
         verdict["why"] = "its tool is not in any Hub library: %s" % how
         return verdict
