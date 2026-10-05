@@ -10,21 +10,34 @@ How it behaves, and why:
     A machine with no connection, or a laptop away from the shop, runs the
     last copy it got. A network problem means "slightly out of date", not
     "the add-in is gone".
-  * With a cache in hand it hands over immediately and fetches in the
-    background for next time. Fusion never waits on a slow network. Updates
-    land on the next restart, which is true regardless: Fusion holds imported
-    modules for a whole session, and swapping code under running event
-    handlers is how an add-in crashes it.
+  * It checks for a newer release before handing over, not in the background.
+    This paragraph used to claim a background thread. There is not one: the
+    check moved in front of the handover on purpose, so a machine that has
+    just been updated runs the new code this session rather than the next, and
+    the cost is a probe of about three seconds at startup, or about twenty on
+    the one start that finds a release to download. Updates still land on a
+    restart either way, because Fusion holds imported modules for a whole
+    session and swapping code under running event handlers is how an add-in
+    crashes it.
   * With no cache it has to fetch before it can do anything, so the first run
     after installation is the only one that can block, and it gives up after
     a while rather than hanging.
-  * A download is unpacked to a temporary folder and checked before it
-    replaces anything. A truncated or wrong-looking download leaves the
-    working copy alone.
+  * A download is checked against a SHA256 published beside it, then unpacked
+    to a temporary folder and checked for shape, before it replaces anything.
+    Anything that arrived wrong leaves the working copy alone.
+
+    That is integrity, not authenticity. It catches a truncated download, a
+    proxy's error page saved as a zip, the wrong asset, a CDN serving half a
+    file. It does not protect against the release itself being tampered with,
+    because anyone who could replace the zip could replace the hash beside it.
+    The trust anchor for that is still HTTPS and the GitHub account, and the
+    only thing that would change it is a signature checked against a key
+    pinned in this file, with the private half kept off these machines.
   * It is pinned to released assets, never to a branch, so an unfinished
     commit cannot ship itself to every machine the moment it is pushed.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -144,13 +157,33 @@ def _version_in(folder):
 
 
 def _usable(folder):
-    """Whether an unpacked download looks like the add-in.
+    """Whether an unpacked download has the shape of the add-in.
 
-    Checked before it is allowed to replace a working copy: a truncated
-    download, a wrong asset or an error page saved as a zip all get this far.
+    A shape check and nothing more: two filenames. It is the last of three
+    gates, after the hash and after the zip opening at all, and on its own it
+    would pass anything containing those two names. Worth keeping as the one
+    that survives a release built wrongly rather than delivered wrongly.
     """
     return (os.path.isfile(os.path.join(folder, "utp", "__init__.py"))
             and os.path.isfile(os.path.join(folder, "utp", "addin.py")))
+
+
+def _expected_digest(source):
+    """The SHA256 published beside the asset, or None if there is not one.
+
+    Releases up to 0.17.0 have no such file. Those are allowed through with a
+    line saying so rather than refused, because refusing would mean a loader
+    that cannot install any release made before the check existed, including
+    the one a machine might need to go back to.
+    """
+    try:
+        published = _fetch(_url(source, "SHA256"), _TIMEOUT).decode()
+    except Exception:
+        return None
+    for word in published.split():
+        if len(word) == 64 and all(c in "0123456789abcdef" for c in word.lower()):
+            return word.lower()
+    return None
 
 
 def _sync(source, probe_timeout=_TIMEOUT):
@@ -172,6 +205,20 @@ def _sync(source, probe_timeout=_TIMEOUT):
         payload = _fetch(_url(source, source["asset"]), _TIMEOUT)
     except Exception as exc:
         _note("could not download %s: %s" % (source["asset"], exc))
+        return None
+
+    expected = _expected_digest(source)
+    got = hashlib.sha256(payload).hexdigest()
+    if expected is None:
+        _note("no SHA256 published for %s; installing %s unverified"
+              % (source["asset"], available))
+    elif got != expected:
+        # Nothing is unpacked and nothing is replaced. The working copy stands.
+        _note("the download of %s does not match the SHA256 published beside "
+              "it, so it was discarded and %s is still in use. Expected %s, "
+              "got %s (%d bytes)."
+              % (source["asset"], _installed() or "nothing",
+                 expected[:16], got[:16], len(payload)))
         return None
 
     staging = tempfile.mkdtemp(prefix="utp-update-")

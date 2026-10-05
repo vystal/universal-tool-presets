@@ -9,6 +9,7 @@ Upload both as assets on a GitHub release. The loader fetches them from
 releases/latest/download/, so publishing a release is what updates the shop.
 """
 
+import hashlib
 import os
 import re
 import shutil
@@ -58,6 +59,19 @@ def build():
     with open(os.path.join(OUT, "VERSION"), "w", encoding="utf-8") as handle:
         handle.write(number + "\n")
 
+    # What the loader checks a download against before it unpacks anything.
+    #
+    # Be clear what this is and is not. It catches a download that arrived
+    # wrong: truncated, a proxy's error page saved as a zip, the wrong asset, a
+    # CDN serving half a file. It is not a signature. Anyone who could replace
+    # utp.zip on a release could replace this file in the same breath, so it
+    # adds nothing against the release itself being tampered with. That needs a
+    # key the loader trusts, with the private half kept off these machines, and
+    # is a different piece of work.
+    digest = hashlib.sha256(open(archive, "rb").read()).hexdigest()
+    with open(os.path.join(OUT, "SHA256"), "w", encoding="utf-8") as handle:
+        handle.write("%s  utp.zip\n" % digest)
+
     # The same check the loader makes before it trusts a download, so a bad
     # release is caught here rather than on somebody's machine.
     needed = {"utp/__init__.py", "utp/addin.py"}
@@ -70,7 +84,9 @@ def build():
           % (archive, len(included), os.path.getsize(archive) // 1024))
     print("%s" % os.path.join(OUT, "VERSION"))
     print()
-    print("Upload both as assets on a GitHub release tagged v%s." % number)
+    print("%s" % os.path.join(OUT, "SHA256"))
+    print()
+    print("Upload all three as assets on a GitHub release tagged v%s." % number)
     return 0
 
 
