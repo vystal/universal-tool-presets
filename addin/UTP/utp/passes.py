@@ -397,7 +397,13 @@ def _ensure_presets(cam, decided, tools, report, writing):
             continue
         try:
             done = presets.apply(cam, tool, library_preset, intended)
-            report.note("added to the document tool library", did=done)
+            # The plan as well as what was done. plan() says which values made
+            # the existing copy stale, and that was reported on the dry run
+            # and thrown away here — which is the one path where it matters,
+            # because a copy that is stale again on the next pass means a new
+            # one is added every time and only this field says why.
+            report.note("added to the document tool library", did=done,
+                        plan=intended)
             report.wrote += len(done)
             shelf = _document_tools(cam)   # update() invalidated them
             wrote = True
