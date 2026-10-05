@@ -126,6 +126,7 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
 
     def notify(self, args):
         try:
+            _calls["edits"] += 1
             operation = getattr(args, "operationbase", None)
             if operation is None:
                 return
@@ -361,6 +362,7 @@ class _DocumentSaving(adsk.core.DocumentEventHandler):
 
     def notify(self, args):
         try:
+            _calls["saves"] += 1
             document = getattr(args, "document", None)
             name = getattr(document, "name", "?")
             marked = _state.pop("marked before save", None)
@@ -405,6 +407,7 @@ class _DocumentSaved(adsk.core.DocumentEventHandler):
 class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
     def notify(self, args):
         try:
+            _calls["commands"] += 1
             _commands.add(str(args.commandId))
             if str(args.commandId) in config.SAVE_COMMANDS:
                 # Recorded whatever happens next, so documentSaving can tell a
@@ -472,6 +475,18 @@ class _Quiet:
 # Fusion objects a subscription depends on. Nothing reads these; they exist so
 # the garbage collector cannot take a listener away from under the add-in.
 _held = {}
+
+# How many times each listener has actually been called. Counted because the
+# listener died once and nothing could tell: "listening" was in the log, five
+# handlers were attached, and the subscription had been collected. A count of
+# zero against a session somebody has been working in is the symptom, and
+# until now there was nothing that showed it.
+_calls = {"edits": 0, "saves": 0, "commands": 0}
+
+
+def calls():
+    """How many times each listener has fired this session."""
+    return dict(_calls)
 
 
 def arm(app):

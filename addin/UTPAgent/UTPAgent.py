@@ -26,9 +26,22 @@ for path in (_HERE, _UTP):
 
 
 def _purge():
-    """Fusion keeps imported modules for a whole session."""
+    """Drop this agent's own modules so a Stop/Run picks up an edit.
+
+    Only the agent's. It used to take utp with it, which quietly broke the
+    thing the agent is for: the add-in had already imported utp, and purging it
+    meant the next job's "from utp import events" built a second, separate copy
+    of the package. Module-level state then read from a job was not the running
+    add-in's state at all -- it reported no event handlers attached while the
+    add-in had five, and a switch as off while the file said nothing about it.
+
+    That mattered the day the edit listener broke: the one tool that could have
+    confirmed the fix was reporting a different module's variables. A job that
+    wants the working copy from the repo asks for it by name, through
+    use_repo(), which does its own purge at that point.
+    """
     for name in [n for n in sys.modules
-                 if n in ("agent", "utp") or n.startswith(("agent.", "utp."))]:
+                 if n == "agent" or n.startswith("agent.")]:
         del sys.modules[name]
 
 

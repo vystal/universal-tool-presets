@@ -20,6 +20,27 @@ import adsk.cam
 from . import config, diagnostics, library, settings, version
 
 
+def _listeners():
+    """Whether each listener has ever been called this session.
+
+    First thing to look at when the add-in seems to be doing nothing. "listening"
+    in the log says a subscription was made, not that it survived: the edit
+    listener was once losing its event manager to the garbage collector, and the
+    only visible symptom was notes that stopped moving when a feed changed. A
+    zero here, in a session somebody has been working in, is that symptom.
+    """
+    from . import events
+    counted = events.calls()
+    said = {}
+    for what, count in sorted(counted.items()):
+        said["%s seen" % what] = count
+    if counted.get("commands") and not counted.get("edits"):
+        said["LOOK HERE"] = ("commands have fired and operation edits have not, "
+                             "so the edit listener is probably not attached any "
+                             "more; saving still works, it uses a different one")
+    return said
+
+
 def _chosen():
     """What somebody has switched on or off, and what it would be by default.
 
@@ -167,6 +188,7 @@ def collect(app):
         "session log": diagnostics.session_path() or "none yet",
         "events recorded this session": diagnostics.session_count(),
     })
+    section("Are the listeners alive", _listeners())
     section("Switches", _chosen())
     section("Build switches", _switches())
     section("This machine", {
