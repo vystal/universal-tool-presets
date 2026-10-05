@@ -154,7 +154,8 @@ def _run(taken):
         said.append(" ".join(str(p) for p in parts))
 
     room = {"adsk": adsk, "app": app, "ui": app.userInterface, "say": say,
-            "guard": guard, "json": json, "os": os, "time": time}
+            "guard": guard, "json": json, "os": os, "time": time,
+            "use_repo": _use_repo, "which_utp": _which_utp}
     if allowed:
         guard.hold_library_writes()
     try:
@@ -179,6 +180,40 @@ def _finish(taken, result, started):
         os.remove(taken)
     except Exception:
         pass
+
+
+def _which_utp():
+    """Where the utp a job is about to import actually comes from.
+
+    Worth asking out loud. By default a job gets the copy the loader fetched
+    from a release, because the running add-in imported it first and Fusion
+    keeps modules for a whole session. That is the right default: it tests what
+    ships. But it is not what you would assume while editing, and a test of an
+    edit that silently ran the released code would be worse than no test.
+    """
+    try:
+        from utp import config, version
+        return {"from": config.__file__, "version": version.VERSION}
+    except Exception as exc:
+        return {"from": None, "error": str(exc)}
+
+
+def _use_repo():
+    """Give this job the working copy from the repo instead of the release.
+
+    Only the job's view changes. The add-in's own listeners go on holding the
+    modules they imported at startup, so anything that tests a save or an edit
+    as it actually happens still needs a release. Pure logic can be checked
+    here first.
+    """
+    import sys
+    where = os.path.join(guard.REPO, "addin", "UTP")
+    for name in [n for n in sys.modules if n == "utp" or n.startswith("utp.")]:
+        del sys.modules[name]
+    while where in sys.path:
+        sys.path.remove(where)
+    sys.path.insert(0, where)
+    return _which_utp()
 
 
 def _plain(value):

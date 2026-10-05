@@ -23,6 +23,11 @@ fact that every job and every answer is left on disk to be read afterwards.
 TEST_DOCUMENT = "UTP TEST"
 TEST_LIBRARY = "TEST"
 
+# Where the working copy lives, for a job that wants to test an edit before it
+# is released. Machine-specific, which is fair for a tool that only ever runs
+# on the machine it is developed on.
+REPO = "C:/code/active/fusion-utp"
+
 _held = {"bumping": None}
 
 
