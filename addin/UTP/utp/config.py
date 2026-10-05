@@ -160,6 +160,21 @@ MAY_BUMP_LIBRARY_VERSIONS = True
 SAVE_COMMANDS = ("SaveDocumentCommand", "SaveDocumentAsCommand",
                  "ElectronSaveAllCmd", "ElectronSaveAsAllCmd")
 
+# What Fusion calls editing an operation.
+#
+# Needed because operationBaseChanged does not fire for it. Measured on
+# 6 October, with a person changing a feed in the dialog and pressing OK: the
+# operation's value moved from 2000 to 1234, the add-in read the operation as
+# custom when asked, and the edit listener's call count did not move at all. It
+# does fire when a note is written, which is how it looked alive for months
+# while never once seeing the edit that matters.
+#
+# So the note is brought up to date when the command ends instead. The cost is
+# that the write is its own undo step rather than part of the person's edit,
+# which is what operationBaseChanged would have given. Said plainly in the
+# instructions rather than left as a surprise.
+EDIT_COMMANDS = ("IronEditOperation",)
+
 # Listen to operation edits and saves. Still writes nothing while the switch
 # above is off; it records what it would have done to the session log.
 LISTEN_TO_EVENTS = True

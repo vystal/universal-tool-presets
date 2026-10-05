@@ -443,8 +443,94 @@ class _CommandTerminated(adsk.core.ApplicationCommandEventHandler):
                 diagnostics.session_log(
                     "undo or redo ended", command=args.commandId,
                     operation_events_during_it=_running.pop("during", 0))
-        except Exception:
-            pass
+                return
+            if str(args.commandId) in config.EDIT_COMMANDS:
+                _mark_what_they_just_edited(args.commandId)
+        except Exception as exc:
+            diagnostics.session_log("command end handler failed", error=str(exc))
+
+
+def _mark_what_they_just_edited(command):
+    """Bring the operation somebody has just finished editing up to date.
+
+    The operation is taken from the selection, because Fusion leaves it selected
+    when the dialog closes, and because the alternative is a pass over the whole
+    document for one operation's sake.
+
+    Only when the libraries have already been read. An edit must not pay three
+    to eight seconds for a Hub read, which is the whole reason the cache exists;
+    if it is cold the next save catches the document up.
+    """
+    if not (settings.on("on") and settings.on("edit")):
+        return
+    if marks.busy() or _running["undo"]:
+        return
+    app = adsk.core.Application.get()
+    if not library.warm():
+        diagnostics.session_log(
+            "edit finished, nothing decided", command=command,
+            reason="the libraries have not been read yet this session",
+            caught_up_by="saving, or the check button")
+        return
+    tools, ok = library.cached(_Quiet())
+    if not ok:
+        return
+    done = []
+    try:
+        chosen = app.userInterface.activeSelections
+        picked = [chosen.item(i).entity for i in range(chosen.count)]
+    except Exception:
+        picked = []
+    for entity in picked:
+        if not isinstance(entity, adsk.cam.Operation):
+            continue
+        owner, _guessed = _document_of(entity, app)
+        allowed, held_back = _may_write(owner, [entity], "edit")
+        verdict = state.reconcile(entity, tools)
+        would = marks.plan(entity, verdict, during_their_edit=True)
+        written = None
+        if would and allowed:
+            try:
+                with marks.holding():
+                    written = marks.apply(entity, would)
+            except Exception as exc:
+                written = "failed: %s" % exc
+        done.append({"operation": verdict["operation"],
+                     "verdict": verdict["state"],
+                     "would": marks.describe(would) if would else "nothing",
+                     "written": written or "nothing",
+                     "held back": held_back})
+    diagnostics.session_log("edit finished", command=command,
+                            selected=len(picked), did=done or "nothing selected")
+
+
+class _ButtonPressed(adsk.cam.OperationBaseEventHandler):
+    """Watching, not acting. Is there a hook inside the person's own command?
+
+    operationBaseChanged turned out not to fire for a parameter edit, so the
+    note is written when the command ends instead -- which works, but makes the
+    write its own undo step rather than part of the edit. The CAM event manager
+    also offers operationBaseCommandButtonPressed, which sounds like it fires on
+    OK, from inside the command, which is what the original design wanted.
+
+    So this records what it receives and nothing more. If it fires on OK with
+    the operation in hand, the marking moves here and one Ctrl+Z goes back to
+    taking both. If it never fires, this comes out again.
+    """
+
+    def notify(self, args):
+        try:
+            _calls["buttons"] = _calls.get("buttons", 0) + 1
+            operation = getattr(args, "operationbase", None)
+            diagnostics.session_log(
+                "a button was pressed in an operation dialog",
+                operation=getattr(operation, "name", None),
+                arguments=[n for n in dir(args)
+                           if not n.startswith("_") and n not in
+                           ("cast", "classType", "objectType", "thisown", "this")],
+                note="watching only; nothing was written from here")
+        except Exception as exc:
+            diagnostics.session_log("button watcher failed", error=str(exc))
 
 
 class _Quiet:
@@ -517,6 +603,18 @@ def arm(app):
         _held["operation event"] = event
         _handlers.append((event, handler))
         armed.append("operation edits")
+        # Watching only, to find out whether there is a hook that fires inside
+        # the person's own command. See _ButtonPressed.
+        try:
+            pressed = manager.operationBaseCommandButtonPressed
+            watcher = _ButtonPressed()
+            pressed.add(watcher)
+            _held["button event"] = pressed
+            _handlers.append((pressed, watcher))
+            armed.append("operation dialog buttons (watching)")
+        except Exception as exc:
+            diagnostics.session_log("operationBaseCommandButtonPressed "
+                                    "unavailable", error=str(exc))
     except Exception as exc:
         diagnostics.session_log("operationBaseChanged unavailable", error=str(exc))
 
