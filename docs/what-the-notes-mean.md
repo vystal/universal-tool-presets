@@ -72,6 +72,14 @@ older operations and one tracked one says `1 tracked`.
 **Did it change my feeds?** No. Nothing changes an operation's feeds except
 you picking a preset. The notes and colours are all it writes.
 
+**Can picking a preset change more than the feeds?** Occasionally, yes. A
+preset usually carries feeds, speeds and coolant, but a few carry a depth of
+cut or a stepover as well — three of the 441 presets in our libraries do. When
+the newer values include one of those, the note says **changes the cut**, and
+you should regenerate the operation before posting. Without that, the toolpath
+keeps the old shape while the numbers are new, and the file looks ready when it
+is not.
+
 **I picked the wrong preset.** Ctrl+Z. The preset and the note go back
 together in one step.
 

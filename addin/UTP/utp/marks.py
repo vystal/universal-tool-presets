@@ -44,10 +44,17 @@ def note_line(verdict):
         # "v2 - v3 available" when both are known. When the document's own
         # version is not, saying which version is newer is still worth more
         # than saying nothing, so only the second half is dropped.
-        return ours("%s %s %s" % (
+        said = "%s %s %s" % (
             _named(verdict, verdict.get("documentVersion")),
             config.NOTE_SEPARATOR,
-            ("v%s available" % newer) if newer else config.NOTE_UPDATE))
+            ("v%s available" % newer) if newer else config.NOTE_UPDATE)
+        if verdict.get("changesTheCut"):
+            # The one case where picking the newer preset is not just a feed
+            # change. Worth the longer note: a toolpath left ungenerated posts
+            # the old shape at the new numbers.
+            said = "%s %s %s" % (said, config.NOTE_SEPARATOR,
+                                 config.NOTE_CHANGES_THE_CUT)
+        return ours(said)
     if kind == state.CUSTOM:
         return ours(config.NOTE_CUSTOM)
     # not adopted, not a UTP tool, retired: the add-in says nothing at all.

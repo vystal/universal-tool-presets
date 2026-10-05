@@ -194,6 +194,21 @@ def test_clearing_a_note_during_their_own_edit_leaves_it_cleared():
                                 verdict(state.BEHIND, record=ADOPTED))
 
 
+def test_a_preset_change_that_moves_the_cut_says_so():
+    """Measured: 3 of 441 presets in this shop carry tool_stepdown and
+    tool_stepover, so picking the newer one can change the depth of cut, not
+    only the feed. A toolpath left ungenerated then posts the old shape at the
+    new numbers, which is the one failure here that reaches the machine."""
+    plain = marks.note_line(verdict(state.BEHIND))
+    assert config.NOTE_CHANGES_THE_CUT not in plain
+
+    deeper = marks.note_line(verdict(state.BEHIND,
+                                     changesTheCut=["tool_stepdown"]))
+    assert config.NOTE_CHANGES_THE_CUT in deeper
+    assert deeper.endswith(config.NOTE_SUFFIX)
+    assert all(ord(c) < 128 for c in deeper)
+
+
 # ---------------------------------------------------------------------------
 # Comparing values
 # ---------------------------------------------------------------------------

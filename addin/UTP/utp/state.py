@@ -162,6 +162,13 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
 
     moved = values.differences(preset_values, library_preset.values)
     if moved:
+        # Which of them change the shape of the cut rather than the rate. Said
+        # on the verdict so the note can warn, because "update this" on an
+        # operation whose depth of cut is about to move is not the same
+        # instruction as "update this" on one where only a feed moves.
+        shape = [name for name in moved if name in config.SHAPE_PARAMETERS]
+        if shape:
+            verdict["changesTheCut"] = shape
         verdict["state"] = BEHIND
         verdict["differences"] = moved
         verdict["changed"] = values.detail(preset_values, library_preset.values, moved)

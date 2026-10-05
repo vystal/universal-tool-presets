@@ -3,7 +3,7 @@
     "type": "addin",
     "author": "",
     "description": {
-        "": "Universal Tool Presets, phase 1: reads the Hub libraries, works out every operation's verdict, writes a report. Changes nothing."
+        "": "Universal Tool Presets: marks each operation with whether its feeds match the shop library, so an old job can be brought up to date by picking a preset. Writes notes and colours to the document, and presets to its tool library."
     },
     "supportedOS": "windows|mac",
     "editEnabled": true,

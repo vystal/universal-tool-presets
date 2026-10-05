@@ -267,6 +267,22 @@ NOTE_CUSTOM = "Custom"
 # says only that there is something newer. Less informative, never wrong.
 NOTE_UPDATE = "update available"
 
+# Values a preset can carry that change the shape of the cut rather than the
+# rate of it. Measured, not guessed: of 441 presets across the eight Hub
+# libraries, three carry tool_stepdown and tool_stepover, and tool_rampAngle is
+# in the ordinary fifteen that nearly every preset holds.
+#
+# This matters because every other surface here says the add-in is about feeds
+# and speeds. It is, in that it never writes to an operation. But the remedy it
+# tells somebody to use — pick the newer preset — can move a depth of cut, and
+# then a toolpath that is not regenerated posts the old shape at the new feeds.
+# The file looks ready and is not. So when one of these is what moved, the note
+# says so rather than letting it be found at the machine.
+SHAPE_PARAMETERS = ("tool_stepdown", "tool_stepover", "tool_rampAngle",
+                    "tool_finishingStepdown", "tool_finishingStepover",
+                    "tool_threadPitch")
+NOTE_CHANGES_THE_CUT = "changes the cut"
+
 # What the newest copy of a preset is called in the dropdown, so the two
 # entries can be told apart by somebody who knows nothing about any of this.
 LATEST_SUFFIX = "(latest)"
@@ -424,6 +440,10 @@ changes them there, documents already made know nothing about it. This marks
 each operation with where it stands, so you can see it and update it.
 
 It never changes an operation's feeds. Only you do that, by picking a preset.
+
+If a note says "changes the cut", the newer preset moves a depth of cut or a
+stepover and not just a feed. Pick it as usual, then regenerate the operation
+before posting.
 
 
 The notes on your operations

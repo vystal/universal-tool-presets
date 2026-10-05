@@ -58,6 +58,13 @@ about them.</p>
 <p>Your tools' feeds and speeds live in the shop libraries. When somebody
 changes them there, documents already made know nothing about it. This marks
 each operation with where it stands, so you can see it and update it.</p>
+<p><strong>If a note says "changes the cut"</strong>, the newer preset moves a
+depth of cut or a stepover, not just a feed. Pick it as usual, then
+<strong>regenerate the operation before posting</strong> &mdash; otherwise the
+toolpath keeps the old shape while the numbers are new, and the file looks
+ready when it is not. Most presets carry only feeds, speeds and coolant and
+will never say this.</p>
+
 <p><strong>It never changes an operation's feeds.</strong> Only you do that,
 by picking a preset.</p>
 

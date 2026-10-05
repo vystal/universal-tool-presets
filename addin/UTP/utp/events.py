@@ -193,6 +193,13 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
             diagnostics.session_log("edit handler failed", error=str(exc))
 
 
+def _cam_of(document):
+    try:
+        return document.products.itemByProductType("CAMProductType")
+    except Exception:
+        return None
+
+
 def mark_document(document, why):
     """Bring a whole document up to date. Used before a save, and by it.
 
@@ -217,9 +224,45 @@ def mark_document(document, why):
         # somebody would see or a record nobody would, which made working
         # behaviour and broken behaviour look identical.
         did = []
-        for index, operation in enumerate(all_operations):
-            verdict = state.reconcile(operation, tools, seen)
+
+        # Judged before anything is written, because a behind operation needs
+        # the newer values pickable in its dropdown before its note is worth
+        # anything. The note says "pick the one ending (latest)", and that
+        # entry was only ever created by the button: on a machine where nobody
+        # presses it, saving put "v3 available" on operations with no v3 to
+        # pick. The rollout guard being off is the ordinary state, so that was
+        # the ordinary path. The same function the button uses, not another
+        # copy of it.
+        decided = [(op, state.reconcile(op, tools, seen))
+                   for op in all_operations]
+        for _op, verdict in decided:
             counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
+        behind = [pair for pair in decided if pair[1]["state"] == state.BEHIND]
+        if behind and allowed:
+            cam = _cam_of(document)
+            if cam is not None:
+                try:
+                    changed = passes._ensure_presets(cam, decided, tools,
+                                                     _Quiet(), True)
+                    if changed:
+                        # update() leaves tool and preset references stale, so
+                        # the operations are read and judged again rather than
+                        # reused, exactly as the button's pass does.
+                        all_operations = list(passes.operations_of(document))
+                        seen = {}
+                        decided = [(op, state.reconcile(op, tools, seen))
+                                   for op in all_operations]
+                        counts = {}
+                        for _op, verdict in decided:
+                            counts[verdict["state"]] = counts.get(
+                                verdict["state"], 0) + 1
+                        did.append("brought %d preset(s) into the document"
+                                   % len(changed))
+                except Exception as exc:
+                    diagnostics.session_log(
+                        "%s: could not bring presets in" % why, error=str(exc))
+
+        for index, (operation, verdict) in enumerate(decided):
             would = marks.plan(operation, verdict)
             if not would:
                 continue

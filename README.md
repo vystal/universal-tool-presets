@@ -141,8 +141,7 @@ All in `addin/UTP/utp/config.py`.
 | `MAY_WRITE_ON_DEMAND` | the button may mark the document it is pressed in |
 | `MAY_WRITE_ON_EVENTS` | edits and saves keep a document up to date |
 | `MAY_ADD_PRESETS` | newer versions may be added to a document's tool library |
-| `MAY_BUMP_LIBRARY_VERSIONS` | version numbers may be written to the Hub libraries |
-| `MAY_SYNC_PRESETS` | UTPs added at the shop are brought into documents that use the tool |
+| `MAY_BUMP_LIBRARY_VERSIONS` | version numbers may be written to the Hub libraries. Not in the Switches dialog, so the only way to turn it off is editing config.py on each machine |
 | `MAY_TIDY_PRESETS` | copies nothing uses any more may be removed |
 | `ONLY_DOCUMENTS_ALREADY_MARKED` | a rollout guard: events only touch documents the button has been pressed in |
 | `SHOW_PROGRESS` | show a progress bar with a cancel button while the button's pass runs |
