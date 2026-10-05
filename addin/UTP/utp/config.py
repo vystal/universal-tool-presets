@@ -126,10 +126,24 @@ MAY_BUMP_LIBRARY_VERSIONS = True
 # part of the save that follows.
 MARK_BEFORE_SAVE = True
 
-# What Fusion calls its save commands. Matched as a substring, lowercased,
-# because the exact ids differ between builds and the debug report lists
-# what this one actually raises.
-SAVE_COMMANDS = ("save",)
+# What Fusion calls saving a document. Matched exactly.
+#
+# It used to be ("save",) as a lowercased substring, on the reasoning that the
+# exact ids differ between builds. Asked the running Fusion how many command
+# ids contain "save" and the answer was forty, among them AutoSaveFilesCommand,
+# SaveAsImageCommand, FusionSaveAsSTLCommand, SaveSketchAsDWG, SaveBOMDataCmd
+# and IronSaveAsUserDefault. So exporting an STL, taking a screenshot, writing
+# a BOM, or simply leaving Fusion alone until it autosaved each ran a whole
+# marking pass over the document: seconds of frozen Fusion at a moment nobody
+# asked for, and notes written in the middle of an export.
+#
+# Every export in Fusion is spelled "Save As something", which is what made a
+# substring the wrong tool. These are the two that save the document, and the
+# two Save All variants of the shell around it. If a build names them something
+# else the saves stop being hooked, which is a quiet failure, so the id is now
+# logged on every save and the debug report lists every command id seen.
+SAVE_COMMANDS = ("SaveDocumentCommand", "SaveDocumentAsCommand",
+                 "ElectronSaveAllCmd", "ElectronSaveAsAllCmd")
 
 # Listen to operation edits and saves. Still writes nothing while the switch
 # above is off; it records what it would have done to the session log.

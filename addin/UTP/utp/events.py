@@ -328,11 +328,11 @@ class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
             if (config.MARK_BEFORE_SAVE and not marks.busy()
                     and settings.on("on") and settings.on("save")
                     and not _running["undo"]
-                    and any(word in str(args.commandId).lower()
-                            for word in config.SAVE_COMMANDS)):
+                    and str(args.commandId) in config.SAVE_COMMANDS):
                 app = adsk.core.Application.get()
                 _state["wrote_before_save"] = mark_document(
-                    app.activeDocument, "marking before the save")
+                    app.activeDocument,
+                    "marking before the save (%s)" % args.commandId)
             if args.commandId in ("UndoCommand", "RedoCommand"):
                 _running["undo"] = True
                 # Logged so the guard is visible. Without this an undo that

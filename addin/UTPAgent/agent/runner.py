@@ -85,11 +85,20 @@ def _watch():
 
 
 def _beat(what, **detail):
-    """Say the agent is alive, so a caller can tell waiting from dead."""
+    """Say the agent is alive, so a caller can tell waiting from dead.
+
+    Never raises. A heartbeat is how the agent says it is well; a heartbeat
+    that can take the agent down is worse than no heartbeat, and the first
+    thing this did on being installed was throw a dialog because two threads
+    reached for the same temporary file at once.
+    """
     detail.update({"state": what, "at": time.time(),
                    "when": time.strftime("%Y-%m-%d %H:%M:%S"),
                    "jobs run": _state["jobs"], "pid": os.getpid()})
-    _write(HEARTBEAT, detail)
+    try:
+        _write(HEARTBEAT, detail)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -182,10 +191,29 @@ def _plain(value):
 
 
 def _write(path, payload):
-    temporary = path + ".part"
+    """Write it whole or not at all, and never fight another writer for it.
+
+    The temporary name carries the thread that made it. Sharing one meant the
+    worker thread and the main thread could be mid-write on the same file, and
+    on Windows the loser gets "the process cannot access the file".
+    """
+    temporary = "%s.%d.%d.part" % (path, os.getpid(), threading.get_ident())
     with open(temporary, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, default=repr)
-    os.replace(temporary, path)
+    for attempt in range(5):
+        try:
+            os.replace(temporary, path)
+            return
+        except Exception:
+            # Something else is reading it this instant: the caller polling
+            # for an answer, or a sync client. Worth a moment, not a failure.
+            if attempt == 4:
+                try:
+                    os.remove(temporary)
+                except Exception:
+                    pass
+                raise
+            time.sleep(0.05)
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +239,8 @@ def start():
     thread = threading.Thread(target=_watch, daemon=True)
     _state["thread"] = thread
     thread.start()
-    _beat("ready", note="agent loaded")
+    # The worker says so, within one turn of its loop. Saying it from here as
+    # well is two threads writing one file for no gain.
     return QUEUE
 
 
