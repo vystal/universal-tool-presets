@@ -223,8 +223,8 @@ def is_a_utp(name):
     return (name or "").strip().lower() not in NOT_A_UTP_NAMES
 
 
-# How old a reading of the shop libraries may be before a save takes another,
-# in seconds. Half an hour.
+# How old a reading of the shop libraries may be before another is taken, in
+# seconds. Fifteen minutes.
 #
 # They used to be read once per Fusion session, full stop, and machinists leave
 # Fusion open for days. So somebody changed a preset at nine, and every
@@ -233,12 +233,10 @@ def is_a_utp(name):
 # exists to prevent, wearing a green dot that says it did not happen, which is
 # worse than no add-in: before it, nobody believed anything.
 #
-# Only a save takes the new reading, never an edit: an edit must not pay three
-# to eight seconds inside somebody's own command, which is the reason the cache
-# exists at all. So the cost is one read per half hour of working, on a save,
-# and the shop's changes reach a document within half an hour of saving it.
-# Set it to 0 to go back to once a session.
-LIBRARY_STALE_AFTER = 1800
+# Entering the Manufacture workspace is what acts on this, because switching
+# workspaces is something people do constantly and a pause there reads as a
+# workspace loading. Never an edit, and never an open: neither can afford it.
+LIBRARY_STALE_AFTER = 900
 
 # Entering one of these is what reads the shop libraries, if they have not been
 # read yet this session.

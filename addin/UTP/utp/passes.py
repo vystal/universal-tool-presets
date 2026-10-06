@@ -257,7 +257,13 @@ def _review_versions(cam, decided, tools, report, writing):
     allowed = writing and settings.on("stamp")
     if versions.review(libraries, wanted.values(), report, allowed) and allowed:
         library.forget()          # the numbers just moved; read them again
-        fresh, ok = library.cached(report, adsk.doEvents, force=True)
+        # Values only for the tools whose presets were just stamped, which are
+        # this document's. Reading every feed in the shop to re-read eleven of
+        # them is two seconds for nothing.
+        fresh, ok = library.cached(
+            report, adsk.doEvents, force=True,
+            wanted={preset.tool_id for preset in wanted.values()
+                    if getattr(preset, "tool_id", None)})
         if ok:
             return fresh
     return tools

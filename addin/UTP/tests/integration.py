@@ -663,23 +663,58 @@ def _icons(bench):
     return "PASS", "Yellow, Red and Blue all written and read back"
 
 
-@check("a part-read of the libraries is never kept")
-def _partial_not_cached(bench):
+@check("a tool whose values were not read is unknown, never current")
+def _values_not_read(bench):
+    """The property the cheap read rests on.
+
+    The warm reading holds every tool's name and id and no values at all, so the
+    whole shop is known but nothing is judged from it until the values for a
+    document's own tools are topped up. If a tool without values ever compared
+    as matching, every operation in the shop would go green on a reading that
+    had looked at nothing. state.reconcile has to answer unknown.
+
+    This replaces a check on the old partial read, where a library was skipped
+    entirely and tools were simply absent -- and an absent tool reads as "not a
+    shop tool", which removes the note and the colour.
+    """
     library.forget()
-    shelf = passes._document_tools(bench.cam)
     quiet = Quiet()
-    tools, ok = library.cached(quiet, None, force=True, wanted=set(shelf))
+    tools, ok = library.cached(quiet, None, wanted=set())
     if not ok:
         return "SKIP", "the libraries could not be read"
-    kept = library.warm()
-    if kept and len(tools) and not library.incomplete():
-        # A read that happened to go all the way through is fine to keep.
-        return "SKIP", ("this document's tools were only found by reading every "
-                        "library, so nothing was cut short to test")
-    if kept:
-        return "FAIL", ("a reading that stopped early was kept; another "
-                        "document would read as untracked and lose its notes")
-    return "PASS", "the short reading was handed back and not cached"
+    if library.detailed():
+        return "FAIL", ("asked for no values and got them for %d tools"
+                        % len(library.detailed()))
+    if not tools:
+        return "FAIL", "no tools at all, so nothing was read"
+
+    verdicts = set()
+    seen = {}
+    for operation in bench.operations():
+        verdicts.add(state.reconcile(operation, tools, seen)["state"])
+    wrong = verdicts & {state.CURRENT, state.BEHIND, state.CUSTOM}
+    if wrong:
+        return "FAIL", ("judged operations from a reading with no values in it: "
+                        "%s. A green note here means nothing was compared."
+                        % sorted(wrong))
+
+    # And the top-up fills them in, from the libraries holding them only.
+    shelf = set(passes._document_tools(bench.cam))
+    tools, ok = library.cached(quiet, None, wanted=shelf)
+    got = library.detailed()
+    if not shelf & got:
+        return "FAIL", ("topping up read values for none of this document's %d "
+                        "tools" % len(shelf))
+    after = set()
+    seen = {}
+    for operation in bench.operations():
+        after.add(state.reconcile(operation, tools, seen)["state"])
+    if not after & {state.CURRENT, state.BEHIND, state.CUSTOM}:
+        return "FAIL", ("after the top-up nothing could still be judged: %s"
+                        % sorted(after))
+    return "PASS", ("no values read: everything unknown; topped up %d of this "
+                    "document's %d tools: %s"
+                    % (len(shelf & got), len(shelf), sorted(after)))
 
 
 @check("default presets are left alone")
