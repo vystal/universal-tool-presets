@@ -228,12 +228,14 @@ def _cam_of(document):
         return None
 
 
-def mark_document(document, why, may_read_libraries=True):
-    """Bring a whole document up to date. Used as a job opens.
+def mark_document(document, why, budget=-1):
+    """Bring a whole document up to date, as far as the budget allows.
 
-    may_read_libraries=False uses whatever reading is already held and never
-    goes to the Hub, for the caller that cannot afford three seconds: reading
-    inside a document open would stall the open itself.
+    Judges from whatever reading is in hand and never reads the libraries
+    itself; catch_up does that first, where the staleness rule lives. This used
+    to take may_read_libraries, whose only caller always passed False, so the
+    staleness branch it guarded could never run and the one automatic write
+    path in the add-in judged against a reading of any age.
     """
     with marks.holding():
         from . import passes
@@ -246,10 +248,7 @@ def mark_document(document, why, may_read_libraries=True):
         # one looks like the add-in being slow rather than the network being
         # read once.
         reading = time.time()
-        tools, ok = library.cached(
-            report,
-            stale_after=config.LIBRARY_STALE_AFTER if may_read_libraries
-            else None)
+        tools, ok = library.cached(report)
         reading = round(time.time() - reading, 2)
         if not ok:
             diagnostics.session_log("%s: nothing decided" % why,
@@ -270,7 +269,10 @@ def mark_document(document, why, may_read_libraries=True):
         # them. Judging is most of the cost, so the budget has to cover judging
         # and not only writing.
         started = time.time()
-        budget = config.SAVE_SECONDS
+        # -1 means "the usual cap". None means no cap, for a button press:
+        # somebody is waiting and expects the job finished, not advanced.
+        if budget == -1:
+            budget = config.PASS_SECONDS
         cursor = _state.get("save cursor", {}).get(_key(document), 0)
         if cursor >= len(all_operations):
             cursor = 0
@@ -328,7 +330,14 @@ def mark_document(document, why, may_read_libraries=True):
         # operations with no v3 to pick. Only for the ones this save actually
         # looked at, and only if there is time left, because bringing a preset
         # in is a bigger write than a note.
-        if behind and allowed and (not budget or time.time() - started < budget):
+        # Not gated on budget left over, which it used to be. That gate was
+        # false by construction in exactly the case it mattered: a sweep that
+        # ran out of budget is a sweep that marked operations "v3 available",
+        # and this is the step that brings the v3 in for them to pick. So a
+        # part-swept document got the notes and not the presets -- the precise
+        # failure the step was written to prevent. It only ever runs for what
+        # this pass marked behind, which the budget already bounds.
+        if behind and allowed:
             cam = _cam_of(document)
             if cam is not None:
                 try:
@@ -383,14 +392,19 @@ def mark_document(document, why, may_read_libraries=True):
         left = len(all_operations) - looked
         _state.setdefault("save cursor", {})[_key(document)] = (
             (cursor + looked) % len(all_operations) if all_operations else 0)
-        if looked >= len(all_operations):
-            _swept[_key(document)] = (
-                "swept at %s, %d operations, %d written"
-                % (time.strftime("%H:%M:%S"), looked, wrote))
-        else:
-            _swept[_key(document)] = (
-                "partly swept at %s, %d of %d, %d left for next time"
-                % (time.strftime("%H:%M:%S"), looked, len(all_operations), left))
+        whole = looked >= len(all_operations)
+        _swept[_key(document)] = {
+            "complete": whole,
+            # Which reading of the shop libraries this was judged against. A
+            # complete sweep is only worth skipping while that reading is still
+            # the one in hand.
+            "reading": library.read_at(),
+            "said": ("swept at %s, %d operations, %d written"
+                     % (time.strftime("%H:%M:%S"), looked, wrote)) if whole else
+                    ("partly swept at %s, %d of %d, %d left for next time"
+                     % (time.strftime("%H:%M:%S"), looked,
+                        len(all_operations), left)),
+        }
         diagnostics.session_log(
             why, document=getattr(document, "name", "?"), verdicts=counts,
             looked_at=looked, of=len(all_operations),
@@ -400,6 +414,64 @@ def mark_document(document, why, may_read_libraries=True):
             would_mark=planned, wrote=wrote, did=did[:20] or "nothing",
             failed=failed or None, held_back=held_back)
         return wrote
+
+
+def forget_sweeps():
+    """Forget which documents have been swept.
+
+    For the two buttons: somebody pressing one is asking for the work to be
+    done now, not told that it was done earlier against a reading that has
+    since been thrown away.
+    """
+    _swept.clear()
+
+
+def catch_up(document, why):
+    """Bring one document up to date, reading the libraries first if need be.
+
+    The single path behind all three automatic triggers: a job opening, the
+    Manufacture workspace being entered, and an edit finishing. They were three
+    different things doing three different amounts of work, and between them
+    they left two holes.
+
+    Entering Manufacture read the libraries and marked nothing, while the
+    instructions told people it marked. And opening a job marked but never read,
+    so it was the one write path with no bound on how old its reading was: enter
+    Manufacture at eight, open a job at four, and every note in it was written
+    against the morning's libraries. config.LIBRARY_STALE_AFTER exists to stop
+    exactly that.
+
+    They also each did one budgeted pass and stopped. A pass is capped so no
+    trigger can stall Fusion, and a document bigger than one pass carries on at
+    the next one -- which only works if there IS a next one. When the only
+    trigger was a job opening, there was not: it fires once per document per
+    session, so the cursor was written and never read again and a job past about
+    six marks stayed half marked all day. Three recurring triggers is what makes
+    the cursor mean something.
+
+    A document that has been swept all the way through against the reading in
+    hand is left alone, so switching workspaces in a settled job costs nothing.
+    """
+    if not (settings.on("on") and settings.on("open")):
+        return 0
+    if marks.busy() or _running["undo"]:
+        return 0
+    if document is None:
+        return 0
+    # Read first, so the pass below judges against something current. Bounded
+    # by the staleness window, so this is at most one read per fifteen minutes
+    # across all three triggers.
+    _warm_now(why)
+    if not library.warm():
+        diagnostics.session_log(
+            "nothing decided", why=why,
+            document=getattr(document, "name", "?"),
+            reason="the shop libraries could not be read")
+        return 0
+    done = _swept.get(_key(document)) or {}
+    if done.get("complete") and done.get("reading") == library.read_at():
+        return 0
+    return mark_document(document, why)
 
 
 class _DocumentOpened(adsk.core.DocumentEventHandler):
@@ -440,16 +512,7 @@ class _DocumentOpened(adsk.core.DocumentEventHandler):
             document = getattr(args, "document", None)
             if document is None:
                 return
-            if not library.warm():
-                diagnostics.session_log(
-                    "opened a job, nothing decided",
-                    document=getattr(document, "name", "?"),
-                    reason="the libraries have not been read yet this session",
-                    note="reading them inside an open would stall it; "
-                         "entering Manufacture reads them first")
-                return
-            mark_document(document, "marking the job that was opened",
-                          may_read_libraries=False)
+            catch_up(document, "marking the job that was opened")
         except Exception as exc:
             diagnostics.session_log("open handler failed", error=str(exc))
 
@@ -556,8 +619,9 @@ class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
                     where = _key(app.activeDocument)
                 except Exception:
                     where = None
-                _state["marked before save"] = _swept.get(
-                    where, "this job has not been swept this session")
+                _state["marked before save"] = (
+                    _swept.get(where) or {}).get(
+                        "said", "this job has not been swept this session")
             if args.commandId in ("UndoCommand", "RedoCommand"):
                 _running["undo"] = True
                 # Logged so the guard is visible. Without this an undo that
@@ -624,6 +688,12 @@ def _mark_what_they_just_edited(command):
     # exists to avoid -- pressing Cancel reaches this line too.
     if library.warm():
         _warm_now("an edit finished (%s)" % command)
+        # And carry the sweep on, which is the third of the three recurring
+        # triggers that let a document bigger than one pass ever finish. Free
+        # on a document already swept through against this reading, so editing
+        # in a settled job costs nothing; bounded by the budget otherwise, and
+        # it stops costing anything once the job converges.
+        catch_up(app.activeDocument, "an edit finished (%s)" % command)
     if not _waiting:
         # Nothing was put by, so either the edit handler decided it already or
         # there was no edit to decide. Checked before the libraries are read,
@@ -771,7 +841,8 @@ class _WorkspaceActivated(adsk.core.WorkspaceEventHandler):
                 return
             if marks.busy() or _running["undo"]:
                 return
-            _warm_now("entering %s" % which)
+            app = adsk.core.Application.get()
+            catch_up(app.activeDocument, "entering %s" % which)
         except Exception as exc:
             diagnostics.session_log("workspace handler failed", error=str(exc))
 

@@ -173,6 +173,15 @@ def warm():
     return _cache["tools"] is not None
 
 
+def read_at():
+    """When the reading in hand was taken. 0.0 if there is none.
+
+    Used to tell whether a document that was swept was swept against the
+    reading that is current now, or against an older one.
+    """
+    return _cache["read at"]
+
+
 def incomplete():
     """Whether the last reading had a library it could not open.
 

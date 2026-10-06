@@ -97,17 +97,24 @@ date</em> in green. The count is only of operations being tracked, so a setup
 of twenty older operations and one tracked one says <em>1 tracked</em>.</p>
 
 <h2>When it runs</h2>
-<p>When you open a job, and when you change an operation. Nothing in the
-background.</p>
+<p>When you open a job, when you go into the Manufacture workspace, and when
+you change an operation. Nothing in the background.</p>
+<p>A big job may not be finished in one go &mdash; each of those moments is
+capped at about two seconds so nothing ever hangs, and it carries on from where
+it stopped at the next one. Once a job is up to date it is skipped entirely, so
+switching workspaces in a finished job costs nothing. If you would rather not
+wait, <em>Check this document</em> does the whole thing in one go.</p>
 <p><strong>Saving writes nothing at all.</strong> It used to bring the whole
 document up to date first, which left the file needing a second save every
 time &mdash; so the catching up happens as a job opens instead, where nothing
 is waiting on it and there is no save for it to land after.</p>
-<p>It reads the shop libraries once a session, when you first go into the
-Manufacture workspace, so nothing you do afterwards waits for it. That read
-takes a few seconds and it is the only pause this adds. A job opened before
-that read is not marked until you go into Manufacture, change something in it,
-or press <em>Check this document</em>.</p>
+<p>It reads the shop libraries when you first go into the Manufacture
+workspace, and again if that reading is more than fifteen minutes old. That
+read takes a few seconds and it is the only real pause this adds. Everything
+else uses what it already has.</p>
+<p><strong>If somebody changes a preset in the shop library while you are
+working</strong>, press <em>Pick up library changes</em>. That reads the
+libraries again and brings the job in front of you up to date with them.</p>
 
 <h2>Turning it off</h2>
 <p>Press <em>Switches</em> in the UTP panel. There is a checkbox for each of

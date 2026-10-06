@@ -128,17 +128,44 @@ def _unmark(app):
 
 
 def _refresh(app):
-    """Read the Hub libraries again, for when somebody has changed one."""
-    from . import library
+    """Read the Hub libraries again, and bring the open job up to date with them.
+
+    The marking is the point, and it used to be missing. This button exists for
+    "somebody changed a preset while Fusion was open" -- which is precisely when
+    every note in front of you is wrong -- and it re-read the libraries, touched
+    no operation, and reported "Read 390 tools and 441 presets from 8 libraries"
+    with real numbers in it. A confident success message over a document still
+    showing the old green, and nothing saying the notes had not moved.
+    """
+    from . import events, library
     report = diagnostics.Report("library refresh")
     library.forget()
     tools, ok = library.cached(report, adsk.doEvents, force=True)
     presets = sum(len(tool.presets) for tool in tools.values())
     shelves = len({tool.library for tool in tools.values()})
-    path = report.close()
     if not ok:
+        # forget() has already emptied the cache, so a failed re-read leaves
+        # this session with no reading at all rather than holding what it had.
+        # Said out loud, because a session without one stands every automatic
+        # trigger down and otherwise looks exactly like a working one.
+        report.failed("the libraries could not be re-read, and the reading this "
+                      "session had was already let go, so nothing will be "
+                      "decided until one succeeds")
+        report.close()
         return config.NO_LIBRARY, None
-    return (config.REFRESHED % (len(tools), presets, shelves),
+    # A full pass, not a budgeted one: somebody pressed a button and is waiting.
+    wrote = 0
+    try:
+        document = app.activeDocument
+    except Exception:
+        document = None
+    if document is not None:
+        events.forget_sweeps()
+        wrote = events.mark_document(
+            document, "refresh: bringing the job up to date with the new reading",
+            budget=None)
+    path = report.close()
+    return (config.REFRESHED % (len(tools), shelves, presets, wrote),
             "Report:\n%s" % path if path else None)
 
 

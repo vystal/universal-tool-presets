@@ -439,11 +439,11 @@ def _pass_budget(bench):
     total = len(bench.operations())
     if total < 2:
         return "SKIP", "needs more than one operation"
-    was = config.SAVE_SECONDS
+    was = config.PASS_SECONDS
     # Small enough that one pass cannot finish the document, not so small that
     # it cannot start it. Zero progress at all is a separate thing and the
     # add-in now guarantees one operation a pass whatever the budget says.
-    config.SAVE_SECONDS = 0.001
+    config.PASS_SECONDS = 0.001
     _state = events._state
     _state.pop("save cursor", None)
     try:
@@ -453,7 +453,7 @@ def _pass_budget(bench):
             seen.append(list(_state.get("save cursor", {}).values()))
         flat = [v[0] for v in seen if v]
     finally:
-        config.SAVE_SECONDS = was
+        config.PASS_SECONDS = was
         _state.pop("save cursor", None)
     if len(set(flat)) < 2:
         return "FAIL", ("the cursor did not move across passes (%s), so a "
@@ -538,6 +538,79 @@ def _setups(bench):
 # ---------------------------------------------------------------------------
 # The button's pass
 # ---------------------------------------------------------------------------
+
+@check("a part-swept document carries on at the next trigger")
+def _resumes(bench):
+    """The cursor has to mean something.
+
+    A pass is capped so nothing hangs, and a document bigger than one pass
+    carries on at the next one. While a job opening was the only trigger that
+    was a fiction: documentOpened fires once per document per session, so the
+    cursor was written and never read again and anything past about six marks
+    stayed half marked all day. Entering Manufacture and finishing an edit are
+    passes too now, which is what makes resuming real.
+
+    Driven here through catch_up, the path all three triggers share, with the
+    budget squeezed so one pass cannot finish the bench.
+    """
+    total = len(bench.operations())
+    if total < 2:
+        return "SKIP", "needs more than one operation"
+    was = config.PASS_SECONDS
+    config.PASS_SECONDS = 0.001
+    events.forget_sweeps()
+    events._state.pop("save cursor", None)
+    try:
+        seen = []
+        for _ in range(4):
+            events.catch_up(bench.document, "integration: resuming")
+            seen.append(list(events._state.get("save cursor", {}).values()))
+    finally:
+        config.PASS_SECONDS = was
+        events._state.pop("save cursor", None)
+        events.forget_sweeps()
+    flat = [v[0] for v in seen if v]
+    if len(set(flat)) < 2:
+        return "FAIL", ("the cursor did not move across triggers (%s), so a "
+                        "document too big for one pass never finishes" % flat)
+    return "PASS", "cursor advanced across repeated triggers: %s" % flat
+
+
+@check("a settled document is skipped, so switching workspace costs nothing")
+def _skips_settled(bench):
+    """Otherwise every workspace switch re-judges the whole job.
+
+    Measured 7 October: three milliseconds an operation, so a four hundred
+    operation job is over a second every time somebody enters Manufacture, for
+    no change. A document swept all the way through against the reading in hand
+    is left alone until that reading is replaced.
+    """
+    events.forget_sweeps()
+    events.catch_up(bench.document, "integration: first sweep")
+    first = (events._swept.get(events._key(bench.document)) or {})
+    if not first.get("complete"):
+        return "SKIP", ("the bench did not finish in one pass, so there is no "
+                        "settled state to test")
+    started = time.time()
+    wrote = events.catch_up(bench.document, "integration: should be skipped")
+    took = time.time() - started
+    if wrote:
+        return "FAIL", "the second pass wrote %d more; it should be skipped" % wrote
+    if took > 0.05:
+        return "FAIL", ("the second pass took %.2fs, so it re-judged the "
+                        "document instead of being skipped" % took)
+
+    # And a new reading of the libraries must make it sweep again.
+    library.forget()
+    events.catch_up(bench.document, "integration: after a new reading")
+    again = (events._swept.get(events._key(bench.document)) or {})
+    if again.get("reading") == first.get("reading"):
+        return "FAIL", ("a fresh reading of the libraries did not make the "
+                        "document be swept again, so a shop change would never "
+                        "reach a settled job")
+    return "PASS", ("skipped in %.3fs while settled, and swept again after a "
+                    "new reading" % took)
+
 
 @check("a check settles, so a second one writes nothing")
 def _check_settles(bench):

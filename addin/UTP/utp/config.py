@@ -302,20 +302,29 @@ SHOW_PROGRESS = False
 # How long marking may hold up a save, in seconds.
 #
 # A save marks the whole document, synchronously, before Fusion starts saving.
-# Judging one operation costs about ten milliseconds and marking one costs two
-# writes at about a hundred and fifty, so a four hundred operation job is four
-# seconds to decide and could be a minute to write. On the one action a person
-# performs twenty times a day. A save that hangs is the fastest way to get an
-# add-in uninstalled, and nothing capped it.
+# How long one automatic pass over a document may take, in seconds.
 #
-# So a save does what it can in this long and remembers where it stopped, and
-# the next save carries on from there. A document converges over a few saves
-# instead of freezing on one, and the button still does the whole thing in one
-# go because pressing it is asking for that.
+# Measured 7 October: judging an operation costs about three milliseconds and
+# marking one costs two writes at about a hundred and ten. So a four hundred
+# operation job is a bit over a second to decide and could be most of a minute
+# to write, and nothing capped it. An add-in that hangs is the fastest way to
+# get an add-in uninstalled.
 #
-# Two seconds because a save already takes about that, so the add-in at worst
-# doubles something nobody times. Set it to 0 for no limit.
-SAVE_SECONDS = 2.0
+# So a pass does what it can in this long and remembers where it stopped, and
+# the next pass carries on from there. That only works if there IS a next one:
+# while a job opening was the only trigger -- once per document per session --
+# the cursor was written and never read again, and anything past about six
+# marks stayed half marked all day. Entering Manufacture and finishing an edit
+# are passes too now, so a document converges over a few of them and is then
+# skipped entirely while it stays settled.
+#
+# The buttons pass budget=None instead, because somebody pressing one is asking
+# for the job finished rather than advanced.
+#
+# This used to be called SAVE_SECONDS, from when marking happened on a save.
+# Nothing happens on a save any more: for a cloud document the writes landed
+# after Fusion's snapshot and left the file needing a second save.
+PASS_SECONDS = 2.0
 
 # Below this many operations a pass is quick enough that a progress bar is
 # only a flicker, so it is not shown even when the switch is on.
@@ -596,9 +605,17 @@ DRY_COMMAND_TOOLTIP = ("Works out what it would do and writes none of it. "
 
 REFRESH_COMMAND_ID = "UTPRefresh"
 REFRESH_COMMAND_NAME = "Pick up library changes"
-REFRESH_COMMAND_TOOLTIP = ("Reads the Hub libraries again. For when somebody "
+REFRESH_COMMAND_TOOLTIP = ("Reads the Hub libraries again and brings this "
+                           "document up to date with them. For when somebody "
                            "has changed a preset while Fusion was open.")
-REFRESHED = "Read %d tools and %d presets from %d libraries."
+# "%d presets" is the count of presets somebody in the shop made, which is the
+# only kind this add-in tracks. Said plainly, because on these libraries it
+# reads 17 out of 441 -- the other 424 are the "Default preset" Fusion makes by
+# itself -- and a bare "17 presets" against a library somebody knows holds
+# hundreds reads as a fault rather than a filter.
+REFRESHED = ("Read %d tools from %d libraries, %d of their presets made by "
+             "the shop.\n\nBrought this document up to date with them: "
+             "%d change(s).")
 
 FOLDER_COMMAND_ID = "UTPFolder"
 FOLDER_COMMAND_NAME = "Open the reports folder"
