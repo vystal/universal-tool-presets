@@ -3,6 +3,32 @@
 Values are copied out at read time rather than holding on to Fusion's preset
 objects, which go stale after the library is touched. Reading every machine
 library takes a moment, so a pass does it once and hands the result around.
+
+A whole read of eight libraries, 390 tools and 441 presets takes about 3.3
+seconds, measured 6 October. Older notes in this repo say three to eleven; the
+eleven came from reports written before every preset stopped being read twice.
+
+Fusion keeps its own copy of these libraries in a file, and it is not usable
+here. It is tempting -- 2.5 MB of JSON under NsHubLibrariesCache that parses in
+23 milliseconds, with every tool, every preset, and this add-in's own stamps in
+it. Three measurements on 6 October say no:
+
+  * Its numbers are not the API's numbers. Of 930 values compared against the
+    snapshot UTP itself had written into the same preset, 192 -- one in five --
+    differed, in units and in significant digits: v_c 47.1238898038469 against
+    tool_surfaceSpeed 47123.8898038469, v_f_plunge 1317.80292880089 against
+    1317.8029288008897. Deciding "has this preset changed" from those would
+    leave every tool permanently behind, and a tolerance in that one comparison
+    is the last thing a shop tool should have.
+  * Fusion rewrites it in place, non-atomically. A read parsed 441 presets and
+    then measured the file at 0 bytes.
+  * Its mtime moves for reasons unrelated to any library change, so it is not a
+    change detector either.
+
+The one field worth anything is sync.lastSyncTime, which says when Fusion last
+asked the cloud. An API read does not move it, so an API read does not consult
+the cloud; what that means for a change made on another machine is still open,
+and needs a second machine to settle.
 """
 
 import time
