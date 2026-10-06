@@ -232,6 +232,42 @@ def _warmed(bench):
                        config.CAM_WORKSPACES[0]))
 
 
+@check("a stale reading is refreshed without changing workspace")
+def _stale_refreshed(bench):
+    """Somebody working all day in one document never enters Manufacture again.
+
+    Entering it was the only thing that refreshed, so the reading they were
+    judged against was from whenever they arrived. An edit finishing is the
+    heartbeat now. Checked here with the clock wound back rather than by
+    waiting fifteen minutes.
+    """
+    library.forget()
+    events._warm_now("integration: cold")
+    if not library.warm():
+        return "SKIP", "the libraries could not be read"
+    first = library._cache["read at"]
+
+    # An edit finishing with a fresh reading must not re-read.
+    del events._waiting[:]
+    started = time.time()
+    events._mark_what_they_just_edited(config.EDIT_COMMANDS[0])
+    if library._cache["read at"] != first:
+        return "FAIL", ("an edit re-read the libraries when the reading was "
+                        "%.0fs old" % (time.time() - first))
+    quick = time.time() - started
+
+    # Wound back past the window, the same edit must re-read.
+    library._cache["read at"] = time.time() - (config.LIBRARY_STALE_AFTER + 60)
+    events._mark_what_they_just_edited(config.EDIT_COMMANDS[0])
+    if library._cache["read at"] <= time.time() - config.LIBRARY_STALE_AFTER:
+        return "FAIL", ("a reading %d minutes old was not refreshed when an "
+                        "edit finished, so a day in one document is judged "
+                        "against whatever was true that morning"
+                        % (config.LIBRARY_STALE_AFTER // 60))
+    return "PASS", ("fresh reading left alone (%.2fs), one %d minutes old "
+                    "refreshed" % (quick, config.LIBRARY_STALE_AFTER // 60))
+
+
 @check("the edit listener fires")
 def _fires(bench):
     operation = bench.operations()[0]

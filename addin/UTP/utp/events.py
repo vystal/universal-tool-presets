@@ -588,6 +588,22 @@ def _mark_what_they_just_edited(command):
     if marks.busy() or _running["undo"]:
         return
     app = adsk.core.Application.get()
+    # Before the early return below, and only when there is already a reading
+    # to be stale.
+    #
+    # Entering the Manufacture workspace was the only thing that refreshed, and
+    # somebody working all day in one document never enters it again -- they are
+    # already there. So the reading they were judged against was from whenever
+    # they arrived, however many hours ago, and the green notes said the shop's
+    # feeds had not moved because nobody had looked.
+    #
+    # An edit finishing is the right heartbeat: working on a job means editing
+    # operations, the dialog has closed so a pause is a pause, and the fifteen
+    # minute window means one read however many operations get edited. Only when
+    # already warm, because a cold read here is what the _waiting check below
+    # exists to avoid -- pressing Cancel reaches this line too.
+    if library.warm():
+        _warm_now("an edit finished (%s)" % command)
     if not _waiting:
         # Nothing was put by, so either the edit handler decided it already or
         # there was no edit to decide. Checked before the libraries are read,
