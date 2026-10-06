@@ -349,6 +349,54 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing, tidying=True):
     return wrote
 
 
+def _presets_in_use(cam, report):
+    """Which presets the document's operations are actually sitting on.
+
+    Walked from the operations, not taken from the verdicts, because a verdict
+    is allowed not to look. state reads an operation's preset through a getattr
+    that answers None on an exception, so a preset that could not be read is
+    indistinguishable from an operation genuinely on no preset: the verdict
+    comes back "the operation is on no preset" with presetId None, and NO
+    failure is recorded, because reconcile returned a verdict rather than
+    raising. _verdicts' except never fires.
+
+    This set is the tidy's only protection. Built from verdicts, the copy an
+    operation was actually running looked spare, and presets.removable would
+    hand it over to be deleted -- after which the operation re-points at some
+    other preset with its values unchanged, named after a preset it does not
+    hold. Its note had been removed in the same pass.
+
+    Walking the operations also covers the whole document rather than whatever
+    prefix of it the verdicts reached, which matters because a cancelled pass
+    leaves `decided` short and records a note, not a failure.
+
+    Anything unreadable is reported as a failure, which is what stops the tidy.
+    """
+    ids = set()
+    operations, shape = _walk(cam)
+    if shape.get("could not be read"):
+        report.failed("could not read %d thing(s) in the operation tree, so "
+                      "what the operations are using is not fully known"
+                      % shape["could not be read"])
+    for operation in operations:
+        try:
+            preset = operation.toolPreset
+        except Exception as exc:
+            # Said, not swallowed. This is the read whose silence was the
+            # whole fault.
+            report.failed("could not read the preset an operation is on (%s), "
+                          "so nothing is safe to remove" % exc)
+            continue
+        if preset is None:
+            continue
+        try:
+            ids.add(preset.id)
+        except Exception as exc:
+            report.failed("could not read a preset's id (%s), so nothing is "
+                          "safe to remove" % exc)
+    return ids
+
+
 def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
     """Make the newer values pickable for every behind operation.
 
@@ -362,11 +410,10 @@ def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
     # Which presets operations actually sit on, and which tools this document
     # uses. Both are needed before anything can be removed: a preset an
     # operation points at must never go.
-    used_ids = set()
+    # From the operations themselves. See _presets_in_use.
+    used_ids = _presets_in_use(cam, report)
     in_use = {}
     for operation, verdict in decided:
-        if verdict.get("presetId"):
-            used_ids.add(verdict["presetId"])
         found = verdict.get("toolId")
         library_tool = tools.get(found) if found else None
         if library_tool is not None:
@@ -437,7 +484,7 @@ def _mark_setups(cam, tools, report, writing, decided=None):
     for operation, verdict in (decided or []):
         if verdict.get("operationId"):
             known[verdict["operationId"]] = verdict
-    for setup, operations in by_setup(cam):
+    for setup, operations in by_setup(cam, report):
         counts = {}
         for index, operation in enumerate(operations):
             _breathe(index)
@@ -492,7 +539,7 @@ def remove_marks(app):
 
             cleared = 0
             looked = 0
-            for setup, operations in by_setup(cam):
+            for setup, operations in by_setup(cam, report):
                 for owner in [setup] + list(operations):
                     looked += 1
                     try:
@@ -604,15 +651,32 @@ def _writable(document, report):
     return True
 
 
-def by_setup(cam):
-    """[(setup, [operations])], so a setup can be told what is inside it."""
+def by_setup(cam, report=None):
+    """[(setup, [operations])], so a setup can be told what is inside it.
+
+    Per setup, and counted. One try around the whole loop meant a setup that
+    threw truncated the list at that point and said nothing: Remove all notes
+    walks this, so it could clear half a document, report "removed the notes
+    from 6 of 6" from the half it could see, and leave the rest marked. The
+    count it reports is of what it found, which is the number that looked
+    right.
+    """
     found = []
     try:
-        for index in range(cam.setups.count):
+        count = cam.setups.count
+    except Exception as exc:
+        if report is not None:
+            report.failed("could not read the setups: %s" % exc)
+        return found
+    for index in range(count):
+        try:
             setup = cam.setups.item(index)
             found.append((setup, _within(setup)))
-    except Exception:
-        pass
+        except Exception as exc:
+            if report is not None:
+                report.failed("could not read setup %d of %d (%s), so what it "
+                              "holds was not reached" % (index + 1, count, exc))
+            continue
     return found
 
 

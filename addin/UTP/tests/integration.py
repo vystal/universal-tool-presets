@@ -914,6 +914,53 @@ def _race_guard(bench):
                     "refused and reported (%d failure(s))" % report.failures)
 
 
+@check("what the tidy may not delete is read from the operations, not the verdicts")
+def _in_use_from_operations(bench):
+    """Where the tidy's protection comes from.
+
+    The rule itself -- never offer a preset an operation is on -- is pure logic
+    and is pinned by the unit tests. What only Fusion can answer is whether the
+    set handed to that rule is complete.
+
+    It used to be read off the verdicts, and a verdict is allowed not to look:
+    state reads an operation's preset through a getattr that answers None on an
+    exception, so "could not read its preset" and "on no preset" produced the
+    same verdict -- presetId None, and no failure recorded, because reconcile
+    returned rather than raised. The copy that operation was running looked
+    spare. Walking the operations cannot decline in that way: a read that fails
+    reports a failure, and a failure is what stands the tidy down.
+    """
+    quiet = Quiet()
+    walked = passes._presets_in_use(bench.cam, quiet)
+    if quiet.failures:
+        return "FAIL", ("reading what the operations are on reported %d "
+                        "failure(s). The tidy would stand down, which is "
+                        "correct, but something on the bench cannot be read"
+                        % quiet.failures)
+    if not walked:
+        return "SKIP", "no operation on the bench is on a preset"
+
+    # What the verdicts would have said, for comparison. The walked set must
+    # cover it: it may hold more, never less.
+    tools = bench.tools()
+    seen = {}
+    from_verdicts = set()
+    for operation in bench.operations():
+        found = state.reconcile(operation, tools, seen).get("presetId")
+        if found:
+            from_verdicts.add(found)
+    missing = from_verdicts - walked
+    if missing:
+        return "FAIL", ("the walk missed %d preset(s) the verdicts found, so "
+                        "it is the weaker of the two" % len(missing))
+    extra = walked - from_verdicts
+    return "PASS", ("%d preset(s) in use, read from the operations; covers all "
+                    "%d the verdicts found%s"
+                    % (len(walked), len(from_verdicts),
+                       ", plus %d the verdicts did not report" % len(extra)
+                       if extra else ""))
+
+
 @check("default presets are left alone")
 def _defaults(bench):
     tools = bench.tools()

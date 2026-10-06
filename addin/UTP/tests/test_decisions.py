@@ -624,3 +624,47 @@ def test_every_switch_the_code_asks_about_is_a_switch_that_exists():
     assert not unknown, (
         "these are asked about but are not switches, so they read as on: %s. "
         "Known switches: %s" % (unknown, sorted(known)))
+
+
+def test_the_tidy_never_offers_a_preset_an_operation_is_running():
+    """The first of removable's three rules, and the only one that destroys work.
+
+    Deleting a copy an operation points at re-points that operation at whatever
+    is left, silently, with its values unchanged -- so it ends up named after a
+    preset whose feeds it does not hold. There is no undo after a save.
+
+    Worth a test of its own because the set that protects them was, until now,
+    built from the verdicts, and a verdict is allowed not to look: state reads
+    an operation's preset through a getattr that answers None on an exception,
+    so "could not read its preset" and "on no preset" produced the same verdict
+    with no failure recorded. The copy in use looked spare. The set is walked
+    from the operations now, and this pins what it is for.
+    """
+    library_tool = type("T", (), {"presets": {"lib-P Titanium": None}})()
+
+    def copy(name, version):
+        return FakePreset(name, held={config.KEY_SOURCE_PRESET: "lib-P Titanium",
+                                      config.KEY_VERSION: version})
+
+    one, two, three = copy("P Titanium v1", "1"), copy("P Titanium v2", "2"), \
+        copy("P Titanium v3", "3")
+    tool = FakeTool([one, two, three])
+
+    # Nothing in use: the two older copies go, the newest is kept.
+    spare = presets.removable(tool, library_tool, set())
+    assert len(spare) == 2, spare
+    assert [row[1] for row in spare] == ["P Titanium v2", "P Titanium v1"], spare
+
+    # The oldest is in use: it must not be offered, whatever else is.
+    spare = presets.removable(tool, library_tool, {one.id})
+    offered = [row[1] for row in spare]
+    assert "P Titanium v1" not in offered, (
+        "offered a copy an operation is running: %s" % offered)
+
+    # Every copy in use: nothing at all is offered.
+    assert presets.removable(
+        tool, library_tool, {one.id, two.id, three.id}) == []
+
+    # And one in use with only one other present leaves nothing to take, since
+    # the most recently retired copy is kept as the record of what it ran.
+    assert presets.removable(FakeTool([one, two]), library_tool, {two.id}) == []
