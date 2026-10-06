@@ -289,7 +289,19 @@ def mark_document(document, why, may_read_libraries=True):
             # its first run.
             if budget and looked and time.time() - started > budget:
                 break
-            verdict = state.reconcile(operation, tools, seen)
+            try:
+                verdict = state.reconcile(operation, tools, seen)
+            except Exception as exc:
+                # Per operation, as the button's pass has always done. Without
+                # this, one operation that throws on a property read took down
+                # the sweep for every operation after it in the walk, the
+                # cursor was not advanced, and the enclosing handler logged
+                # "open handler failed" -- so the user saw a job that was
+                # half marked and nothing saying why.
+                failed += 1
+                report.failed("could not read an operation: %s" % exc)
+                looked += 1
+                continue
             looked += 1
             counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
             if verdict["state"] == state.BEHIND:
@@ -324,8 +336,16 @@ def mark_document(document, why, may_read_libraries=True):
                                                      _Quiet(), True,
                                                      tidying=False)
                     if changed:
-                        did.append("brought %d preset(s) into the document"
-                                   % len(changed))
+                        # _ensure_presets returns True or False, not a list.
+                        # len() on it raised TypeError, the enclosing except
+                        # caught it, and every open that actually brought a
+                        # preset in was logged as "could not bring presets in"
+                        # -- the opposite of what happened -- while the
+                        # re-judge below, the entire reason for this block,
+                        # never ran. Same fault the _Quiet docstring was
+                        # written about; that fix mended the fake report object
+                        # and left this call site.
+                        did.append("brought newer preset(s) into the document")
                         # update() leaves tool and preset references stale, so
                         # the ones that changed are read and judged again rather
                         # than reused, as the button's pass does.

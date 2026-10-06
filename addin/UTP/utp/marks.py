@@ -238,10 +238,19 @@ def plan(operation, verdict, during_their_edit=False):
     re-running after a crash harmless.
     """
     changes = {}
-    if verdict.get("leave alone"):
+    if verdict.get("leave alone") or verdict.get("state") == state.UNKNOWN:
         # Something about this operation could not be established, so nothing
         # here is a judgement worth acting on. Whatever note it already has
         # stays: saying nothing keeps it, where saying "untracked" takes it off.
+        #
+        # UNKNOWN is checked here as well as by the flag, on purpose. The flag
+        # is set at each place reconcile gives up, and it was set at one of
+        # three for weeks: a preset that could not be read took a yellow
+        # "v3 available" clean off, and no note is documented as "never put on
+        # a shop preset", which is also "nothing to do". A transient read
+        # failure retired the task and said nothing. The state alone is enough
+        # to mean "do not touch", so a fourth place that forgets the flag
+        # cannot reintroduce it.
         return changes
     if not settings.on("mark"):
         # Switched off: it still reads and reports, and writes nothing to an

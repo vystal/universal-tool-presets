@@ -146,11 +146,30 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
         # dot. Green is the one note that means do nothing, so the failure
         # that most needed saying was the one that said least.
         verdict["state"] = UNKNOWN
+        # Left alone, for the same reason the unreadable-library case at the
+        # top of this function is: values.scalars cannot tell "this preset
+        # holds nothing" from "this preset could not be read", and on the
+        # second reading removing the mark is a lie. A yellow "v3 available"
+        # with somebody's own line under it became no note and no dot, and no
+        # note is documented as "never put on a shop preset" -- also "nothing
+        # to do". A transient read failure quietly retired the task.
+        verdict["leave alone"] = True
         verdict["why"] = ("nothing could be read from its preset, so there is "
                           "nothing to compare it against")
         return verdict
 
     operation_values = values.named(operation, preset_values)
+    if not operation_values:
+        # The same hole as the empty preset above, on the operation's side.
+        # values.named swallows a failure per name and returns {} if the
+        # operation's parameters cannot be read at all, and {} differs from
+        # nothing -- so the verdict walked past "custom", past "behind", and
+        # painted a green dot on an operation whose feeds were never read.
+        verdict["state"] = UNKNOWN
+        verdict["leave alone"] = True
+        verdict["why"] = ("none of its own values could be read, so there is "
+                          "nothing to compare against its preset")
+        return verdict
     edited = values.differences(operation_values, preset_values)
     if edited:
         verdict["differences"] = edited
@@ -192,6 +211,7 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
         # The same hole from the library side: a preset that was built but
         # yielded no values would make every operation on it read as current.
         verdict["state"] = UNKNOWN
+        verdict["leave alone"] = True
         verdict["why"] = ("nothing could be read from this preset in the "
                           "library, so there is nothing to compare against")
         return verdict
@@ -209,6 +229,39 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
         verdict["differences"] = moved
         verdict["changed"] = values.detail(preset_values, library_preset.values, moved)
         verdict["why"] = "the library has moved on: %s" % _sample(verdict["changed"])
+        return verdict
+
+    short = set(library_preset.values) - set(preset_values)
+    extra = set(preset_values) - set(library_preset.values)
+    if short or extra:
+        # Every comparison here works on the names the two sides share, so a
+        # parameter that exists on only one side disagrees with nothing and the
+        # verdict fell through to "matches the library". A shop preset that
+        # GAINS a parameter therefore read as current, and the note labelled it
+        # with the library's version number, so it said v3 in green on an
+        # operation still holding v2's parameter set.
+        #
+        # The worst case is the one the shape machinery was built for: somebody
+        # adds a depth of cut to an existing preset. That is a name appearing on
+        # one side only, so nothing was behind, and "changes the cut" -- the
+        # warning that stops a toolpath posting the old shape at the new
+        # numbers -- never fired in the one scenario it exists for.
+        #
+        # versions.needed and LibraryPreset._describes both check this; the one
+        # place that paints a dot did not.
+        verdict["state"] = BEHIND
+        verdict["differences"] = sorted(short | extra)
+        shape = [name for name in verdict["differences"]
+                 if name in config.SHAPE_PARAMETERS
+                 or name in config.CUT_DEPTH_PARAMETERS]
+        if shape:
+            verdict["changesTheCut"] = shape
+        verdict["why"] = (
+            "the library preset holds %d value(s) this one does not%s"
+            % (len(short),
+               " and lacks %d it does" % len(extra) if extra else "")
+            if short else
+            "this one holds %d value(s) the library preset does not" % len(extra))
         return verdict
 
     verdict["state"] = CURRENT

@@ -162,10 +162,78 @@ def test_a_prefixed_line_without_a_closing_mark_is_not_ours():
 # What a verdict leads to
 # ---------------------------------------------------------------------------
 
-def test_an_untracked_operation_is_left_entirely_alone():
-    for kind in (state.NOT_ADOPTED, state.NOT_UTP, state.UNKNOWN):
+def test_an_untracked_operation_that_was_never_marked_is_left_alone():
+    """Nothing to remove, so nothing is planned.
+
+    This used to be the whole of the coverage here and it proved nothing: with
+    record=None and no add-in line in the note there is nothing to take off, so
+    plan() is empty for EVERY state, including states that should mark. The
+    dangerous direction is the test below.
+    """
+    for kind in (state.NOT_ADOPTED, state.NOT_UTP, state.UNKNOWN, state.RETIRED):
         owner = Owner("my own words", None, "Blue")
         assert marks.plan(owner, verdict(kind)) == {}, kind
+
+
+def test_what_a_marked_operation_loses_and_what_it_keeps():
+    """Which verdicts take an existing note off, which is the dangerous half.
+
+    No note is documented as "never put on a shop preset" -- also "nothing to
+    do" -- so removing a yellow "v3 available" does not say "I am unsure", it
+    says "there was never anything here". That must only happen when the
+    add-in actually knows the operation is no longer tracked.
+
+    UNKNOWN is the case that matters. values.scalars cannot tell "this preset
+    holds nothing" from "this preset could not be read", so a transient read
+    failure used to retire the task silently. All three ways reconcile reaches
+    UNKNOWN now set "leave alone", which this pins.
+    """
+    def marked(kind):
+        line = marks.ours("P Titanium v2 - v3 available")
+        owner = Owner(line + "\nCHECK Z OFFSET", ADOPTED, "Yellow")
+        return marks.plan(owner, verdict(kind, record="P Titanium"))
+
+    # Unsure: the note and the colour stay exactly as they are.
+    for kind in (state.UNKNOWN,):
+        plan = marked(kind)
+        assert plan == {}, (
+            "%s took the mark off a tracked operation; unsure must not read as "
+            "'never tracked'. Got %s" % (kind, plan))
+
+    # Known to be out of the system: the add-in's line goes, their words stay.
+    for kind in (state.NOT_ADOPTED, state.NOT_UTP):
+        plan = marked(kind)
+        assert plan.get("note"), "%s left the add-in's line on" % kind
+        assert plan["note"]["to"] == "CHECK Z OFFSET", (
+            "%s did not keep their own words: %r" % (kind, plan["note"]["to"]))
+
+
+def test_a_verdict_that_cannot_compare_says_so_instead_of_matching():
+    """Every comparison works on the names both sides share.
+
+    So a side that is empty shares nothing, nothing differs, and the verdict
+    fell through to "matches the library" -- green, which means do nothing.
+    And a parameter present on only one side disagreed with nothing, so a shop
+    preset that GAINED a depth of cut read as current and was labelled with the
+    library's version number.
+
+    versions.needed and library._describes both guard this. state.reconcile,
+    the one that paints the dot, did not.
+    """
+    import inspect
+
+    source = inspect.getsource(state.reconcile)
+    assert "set(library_preset.values) - set(preset_values)" in source, (
+        "reconcile no longer checks that the two sides hold the same "
+        "parameter names, so a preset that gains one reads as current")
+    assert "if not operation_values:" in source, (
+        "reconcile no longer checks that the operation's own values could be "
+        "read, so an unreadable operation reads as current")
+    # and the state it lands in is one that marks, not one that goes quiet
+    where = source.index("set(library_preset.values) - set(preset_values)")
+    assert "BEHIND" in source[where:where + 1400], (
+        "a name-set mismatch should read as behind, so there is something to "
+        "pick; going quiet would hide it")
 
 
 def test_the_colour_they_chose_survives_being_adopted_and_updated():
@@ -420,9 +488,13 @@ def test_an_operation_is_left_alone_when_something_could_not_be_established():
     unsure = verdict(state.UNKNOWN, record=ADOPTED)
     unsure["leave alone"] = True
     assert marks.plan(owner, unsure) == {}
-    # without the flag, an unknown verdict does take the note off, which is
-    # right when the add-in genuinely knows the preset holds nothing
-    assert "note" in marks.plan(owner, verdict(state.UNKNOWN, record=ADOPTED))
+    # And without the flag too. This used to assert the opposite, on the
+    # reasoning that it is "right when the add-in genuinely knows the preset
+    # holds nothing" -- but values.scalars cannot tell a preset that holds
+    # nothing from one that could not be read, and reconcile's own wording for
+    # this case is "nothing could be READ from its preset". So the state alone
+    # means do not touch, and the flag is belt and braces.
+    assert marks.plan(owner, verdict(state.UNKNOWN, record=ADOPTED)) == {}
 
 
 def test_an_operation_on_a_preset_that_governs_the_cut_keeps_saying_so():
