@@ -56,9 +56,6 @@ def build():
                 zipped.write(full, inside)
                 included.append(inside)
 
-    with open(os.path.join(OUT, "VERSION"), "w", encoding="utf-8") as handle:
-        handle.write(number + "\n")
-
     # What the loader checks a download against before it unpacks anything.
     #
     # Be clear what this is and is not. It catches a download that arrived
@@ -71,6 +68,18 @@ def build():
     digest = hashlib.sha256(open(archive, "rb").read()).hexdigest()
     with open(os.path.join(OUT, "SHA256"), "w", encoding="utf-8") as handle:
         handle.write("%s  utp.zip\n" % digest)
+
+    # VERSION last, because it is the only one of the three the loader reads to
+    # decide whether to fetch anything at all. Written first -- which it was --
+    # it advertises a release the other two files do not back yet, and a loader
+    # starting in that window fetches a zip and a hash that are still the
+    # previous pair. Measured 7 October: the loader installed 0.23.1 from a dist
+    # whose VERSION said 0.24.0, with the SHA256 checking out, and said so in
+    # its log. Its own check caught that; this removes the window rather than
+    # relying on it. Written last, the worst case is a loader that sees the old
+    # version, fetches the matching old pair, and comes back next start.
+    with open(os.path.join(OUT, "VERSION"), "w", encoding="utf-8") as handle:
+        handle.write(number + "\n")
 
     # The same check the loader makes before it trusts a download, so a bad
     # release is caught here rather than on somebody's machine.

@@ -154,6 +154,41 @@ def check(name):
 # The listeners: do they exist, fire, and survive?
 # ---------------------------------------------------------------------------
 
+@check("the add-in running in Fusion is the one in this repository")
+def _right_build(bench):
+    """First of all, because everything after it is about the running add-in.
+
+    The suite imports its own code from the repository but exercises the modules
+    Fusion already has loaded, which come from the installed cache. If those are
+    a release behind, every verdict below describes code nobody is changing.
+
+    Measured 7 October: a full suite ran green against 0.23.1 while the fixes
+    being tested were in 0.24.0, because the loader had installed the older
+    build and nothing in the run said so. The version was only noticed by hand.
+    """
+    import os
+    import re
+
+    from utp import version
+
+    running = version.VERSION
+    # This file lives in the repository, beside the package it tests, so the
+    # repository's version is readable from here without being told where it is.
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "..", "utp", "version.py")
+    try:
+        text = open(here, encoding="utf-8").read()
+        wanted = re.search(r'VERSION\s*=\s*"([^"]+)"', text).group(1)
+    except Exception as exc:
+        return "SKIP", "could not read the repository's version: %s" % exc
+    if running != wanted:
+        return "FAIL", ("Fusion is running %s and this repository is %s. "
+                        "Restart Fusion so the loader installs %s, then run "
+                        "this again -- these results describe %s."
+                        % (running, wanted, wanted, running))
+    return "PASS", "both are %s" % running
+
+
 @check("writing is permitted, so the rest of this suite means something")
 def _may_write_at_all(bench):
     """Put first on purpose.
