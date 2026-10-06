@@ -8,9 +8,26 @@ tells you at a glance how far behind you are.
 
 So it is a label, kept honest by a snapshot of the values it describes. When a
 preset's values no longer match its snapshot, somebody has changed the UTP and
-the number moves on. The first add-in to notice does it; two noticing at once
-write the same number and the same values, so the race is harmless, and a
-refused write breaks nothing because nothing depended on it.
+the number moves on. The first add-in to notice does it, and a refused write
+breaks nothing because nothing depended on it.
+
+The race is NOT harmless, whatever this said before. Fusion has no way to write
+one preset: updateToolLibrary(url, shelf) puts back the whole library from a
+shelf object read earlier, so a second writer holding an older shelf undoes
+everything that changed in between. Measured 7 October on the TEST library, one
+process holding two snapshots, which is exactly what two machines are: a session
+set a feed from 1750 to 1751 and a fresh read confirmed it; the add-in then
+stamped a version using a shelf it had opened before that, and the feed was 1750
+again. The one change this add-in exists to propagate, reverted by this add-in,
+with no undo and nothing saying so.
+
+Which is why the deciding and the writing are separate passes below. Everything
+expensive happens on the first shelf; the second is opened immediately before
+the write, each target is checked against what was decided, and anything that
+moved in between is left alone and reported. That shrinks the window to the
+stamping loop itself and makes a lost change detectable rather than silent. It
+does not close it -- nothing can, while the only write is whole-library -- so
+MAY_BUMP_LIBRARY_VERSIONS stays something a shop can turn off.
 """
 
 import json
@@ -102,6 +119,9 @@ def review(libraries, library_presets, report, allowed):
 
     changed = []
     for url, preset_ids in by_library.values():
+        # Pass one: decide, on a shelf that is then thrown away. Nothing is
+        # written from this one, so however long the walk takes costs nothing
+        # but time.
         try:
             shelf = libraries.toolLibraryAtURL(url)
         except Exception:
@@ -109,7 +129,7 @@ def review(libraries, library_presets, report, allowed):
             continue
         if shelf is None:
             continue
-        wrote_here = False
+        plan = {}
         for index in range(shelf.count):
             tool = shelf.item(index)
             try:
@@ -126,7 +146,41 @@ def review(libraries, library_presets, report, allowed):
                 version, snapshot, why = wanted
                 changed.append({"preset": preset.name, "version": version,
                                 "why": why})
-                if not allowed:
+                plan[preset.id] = (version, snapshot, preset.name)
+        if not plan or not allowed:
+            continue
+
+        # Pass two: open the library again and write immediately. The window in
+        # which somebody else's change can be lost is now this loop rather than
+        # the whole walk above.
+        try:
+            shelf = libraries.toolLibraryAtURL(url)
+        except Exception:
+            report.failed("could not reopen a library to write its versions")
+            continue
+        if shelf is None:
+            continue
+        wrote_here = False
+        for index in range(shelf.count):
+            tool = shelf.item(index)
+            try:
+                count = tool.presets.count
+            except Exception:
+                continue
+            for position in range(count):
+                preset = tool.presets.item(position)
+                if preset.id not in plan:
+                    continue
+                version, snapshot, name = plan[preset.id]
+                # Checked against what was decided a moment ago. If this preset
+                # moved in between, writing the whole library back from this
+                # shelf would put somebody's change back as it was -- so the
+                # stamp is abandoned and said out loud.
+                now = values.scalars(preset)
+                if values.differences(now, snapshot) or set(now) != set(snapshot):
+                    report.failed(
+                        "%s changed while its version was being worked out, so "
+                        "it was left alone rather than written over" % name)
                     continue
                 try:
                     group = config.ATTRIBUTE_GROUP
@@ -136,7 +190,7 @@ def review(libraries, library_presets, report, allowed):
                                           json.dumps(snapshot))
                     wrote_here = True
                 except Exception:
-                    report.failed("could not stamp %s" % preset.name)
+                    report.failed("could not stamp %s" % name)
         if wrote_here:
             try:
                 libraries.updateToolLibrary(url, shelf)

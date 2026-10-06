@@ -744,6 +744,68 @@ def _whole_and_kept(bench):
                     % len(first))
 
 
+@check("a library preset that moved mid-pass is not written over")
+def _race_guard(bench):
+    """The two-writer race, which is real and destroys work.
+
+    Measured 7 October on the TEST library, one process holding two snapshots
+    -- which is exactly what two machines are. A session set a feed from 1750
+    to 1751 and a fresh read confirmed it. The add-in then stamped a version
+    using a shelf opened before that change, and the feed read 1750 again:
+    updateToolLibrary puts back the WHOLE library from the shelf it is given,
+    so the one change this add-in exists to propagate was reverted by this
+    add-in, silently and with no undo.
+
+    Deciding and writing are two passes now, and the second checks each target
+    against what the first decided. Simulated here by handing the decision a
+    snapshot that does not match the preset -- the same thing a change arriving
+    in between looks like -- and requiring that nothing is written and that it
+    is reported rather than swallowed.
+    """
+    from utp import versions
+
+    libraries = adsk.cam.CAMManager.get().libraryManager.toolLibraries
+    tools = bench.tools()
+    target = None
+    for tool in tools.values():
+        for preset in tool.presets.values():
+            if preset.library_url is not None and preset.values:
+                target = preset
+                break
+        if target:
+            break
+    if target is None:
+        return "SKIP", "no library preset with values to work with"
+
+    was = versions.needed
+    report = Quiet()
+    try:
+        # "This needs stamping, and when you decided, it held these values."
+        # The values are deliberately not what it holds, which is what somebody
+        # else's change looks like to the second pass.
+        versions.needed = lambda preset: (
+            99, dict(target.values, tool_feedCutting=-1.0), "test: moved")
+        versions.review(libraries, [target], report, True)
+    finally:
+        versions.needed = was
+
+    if report.failures < 1:
+        return "FAIL", ("a preset whose values did not match what was decided "
+                        "was written anyway; writing the library back from that "
+                        "shelf reverts whatever somebody else changed")
+
+    # And the bogus version must not have landed.
+    library.forget()
+    fresh = library.cached(Quiet(), None)[0]
+    tool = fresh.get(target.tool_id)
+    if tool is not None:
+        again = tool.presets.get(target.id)
+        if again is not None and again.version == "99":
+            return "FAIL", "the refused stamp was written to the shop library"
+    return "PASS", ("a target that moved between deciding and writing was "
+                    "refused and reported (%d failure(s))" % report.failures)
+
+
 @check("default presets are left alone")
 def _defaults(bench):
     tools = bench.tools()
