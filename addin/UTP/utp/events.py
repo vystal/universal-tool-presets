@@ -145,10 +145,7 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
             operation = getattr(args, "operationbase", None)
             if operation is None:
                 return
-            if not (settings.on("on") and settings.on("edit")):
-                # Out before reading anything. _may_write would refuse this
-                # too, but only after reconciling the operation, and an edit
-                # somebody has switched off should cost nothing.
+            if not settings.on("on"):
                 return
             name = getattr(operation, "name", "?")
             if marks.busy():
@@ -162,6 +159,20 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
                     "edit ignored", operation=name,
                     reason="an undo or redo is running; writing here would "
                            "fight the undo stack")
+                return
+            # Somebody has changed something in this document, so whatever a
+            # sweep concluded about it no longer describes it. Said here, above
+            # the edit switch, because the sweep is not the edit switch's
+            # business: with "when I edit" off, a hand-changed feed used to keep
+            # its green note until the reading went stale AND somebody happened
+            # to enter Manufacture, because catch_up skips a document it has
+            # been all the way through. Costs a dict delete, and it is only
+            # reached for a change that is not one of ours -- marks.busy above
+            # is what makes that true.
+            _forget_sweep_of(operation)
+            if not settings.on("edit"):
+                # Out before reading anything: an edit somebody has switched
+                # off should cost nothing.
                 return
             if not library.warm():
                 # Never read the Hub from inside somebody's command: it takes
@@ -414,6 +425,23 @@ def mark_document(document, why, budget=-1):
             would_mark=planned, wrote=wrote, did=did[:20] or "nothing",
             failed=failed or None, held_back=held_back)
         return wrote
+
+
+def _forget_sweep_of(operation):
+    """Forget that the document holding this operation was swept through."""
+    try:
+        owner, _guessed = _document_of(operation,
+                                       adsk.core.Application.get())
+    except Exception:
+        owner = None
+    if owner is None:
+        # Which document it belongs to could not be told, so every sweep is
+        # suspect rather than one of them. Cheaper to be wrong this way: the
+        # cost is a pass that was not needed, against a note that stays green
+        # over a feed somebody just changed.
+        _swept.clear()
+        return
+    _swept.pop(_key(owner), None)
 
 
 def forget_sweeps():

@@ -612,6 +612,44 @@ def _skips_settled(bench):
                     "new reading" % took)
 
 
+@check("changing an operation un-settles the document")
+def _change_unsettles(bench):
+    """Otherwise a settled document stays settled over somebody's change.
+
+    catch_up skips a document it has swept all the way through against the
+    reading in hand, which is what makes switching workspace free. The skip has
+    to end when somebody changes something, and the edit listener is where that
+    is known -- above the "when I edit" switch, because with that switch off a
+    hand-changed feed otherwise kept its green note until the reading went
+    stale and somebody happened to enter Manufacture.
+    """
+    operation, _verdict = bench.a_tracked_operation()
+    if operation is None:
+        return "SKIP", "no tracked operation on the bench"
+
+    events.forget_sweeps()
+    events.catch_up(bench.document, "integration: settle it")
+    key = events._key(bench.document)
+    if not (events._swept.get(key) or {}).get("complete"):
+        return "SKIP", "the bench did not settle in one pass"
+    if events.catch_up(bench.document, "integration: should skip") != 0:
+        return "FAIL", "a settled document was not skipped"
+
+    # The listener's own path, with the operation it would be handed.
+    handler = [h for _e, h in events._handlers
+               if isinstance(h, events._OperationChanged)][0]
+
+    class Args:
+        operationbase = operation
+
+    handler.notify(Args())
+    if (events._swept.get(key) or {}).get("complete"):
+        return "FAIL", ("a change left the document marked as swept through, so "
+                        "the next trigger would skip it and the note would stay "
+                        "as it was")
+    return "PASS", "a change on an operation un-settles its document"
+
+
 @check("a check settles, so a second one writes nothing")
 def _check_settles(bench):
     library.forget()
