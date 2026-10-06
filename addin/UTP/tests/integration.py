@@ -738,32 +738,67 @@ def _no_churn(bench):
     return "PASS", "%d (latest) copies after one check and after three" % after_one
 
 
-@check("removing the notes removes everything, and a check puts it back")
+@check("removing the notes removes everything, and a check puts back what it can")
 def _remove_and_restore(bench):
+    """And is honest about what it cannot.
+
+    Everything the add-in wrote comes off, records included -- that is what
+    "remove every trace" has to mean. But a grey Custom verdict exists ONLY
+    because of that record: it is what says this operation was deliberately put
+    on a shop preset and has since been changed. Remove the record and a later
+    check cannot tell a hand-tuned operation from one that was never tracked, so
+    it reads "not adopted" and writes no note.
+
+    So those do not come back, and the only way back is to pick the preset
+    again. The confirmation dialog says so now; it used to promise that a check
+    "works them all out again", which is true for every verdict except the one
+    somebody is most likely to have.
+    """
     library.forget()
     passes.run(bench.app)
-    before = [o for o in bench.operations()
-              if (o.notes or "").startswith(config.NOTE_PREFIX)]
-    if not before:
+    tools = bench.tools()
+    seen = {}
+    custom = set()
+    marked = set()
+    for operation in bench.operations():
+        if (operation.notes or "").startswith(config.NOTE_PREFIX):
+            marked.add(operation.operationId)
+        if state.reconcile(operation, tools, seen)["state"] == state.CUSTOM:
+            custom.add(operation.operationId)
+    if not marked:
         return "SKIP", "nothing marked to remove"
+
     passes.remove_marks(bench.app)
     left = [o for o in bench.operations()
             if (o.notes or "").startswith(config.NOTE_PREFIX)]
     records = [o for o in bench.operations()
                if o.attributes.itemByName(config.ATTRIBUTE_GROUP,
                                           config.KEY_RECORD) is not None]
-    library.forget()
-    passes.run(bench.app)
-    back = [o for o in bench.operations()
-            if (o.notes or "").startswith(config.NOTE_PREFIX)]
     if left:
         return "FAIL", "%d notes survived Remove all notes" % len(left)
     if records:
         return "FAIL", "%d records survived Remove all notes" % len(records)
-    if len(back) != len(before):
-        return "FAIL", ("%d notes before, %d after putting them back"
-                        % (len(before), len(back)))
-    return "PASS", "removed %d and a check restored all of them" % len(before)
+
+    library.forget()
+    passes.run(bench.app)
+    back = {o.operationId for o in bench.operations()
+            if (o.notes or "").startswith(config.NOTE_PREFIX)}
+    should = marked - custom
+    missing = should - back
+    if missing:
+        return "FAIL", ("%d note(s) that should have come back did not"
+                        % len(missing))
+    came_back_anyway = (custom & back)
+    if came_back_anyway:
+        return "FAIL", ("%d Custom note(s) came back, which means a record "
+                        "survived Remove all notes" % len(came_back_anyway))
+    # And the wording has to admit it.
+    said = config.UNMARK_CONFIRM.lower()
+    if "custom" not in said:
+        return "FAIL", ("the confirmation does not mention that Custom "
+                        "operations do not come back")
+    return "PASS", ("removed %d, %d came back, %d Custom did not and the "
+                    "dialog says so" % (len(marked), len(back), len(custom)))
 
 
 # ---------------------------------------------------------------------------

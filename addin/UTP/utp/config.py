@@ -545,12 +545,19 @@ NEWER_ADDIN = ("this file was written by a newer UTP add-in (schema %d, this "
 UNMARKED = ("Removed the UTP notes from %d of %d operations and setups.\n\n"
             "Press Check this document to work them out again. Presets were "
             "left alone, because an operation may be using one.\n\nOpening or "
-            "checking this document works the notes out again. To stop that, "
-            "turn the add-in off under Switches.")
+            "checking this document works the notes out again, except for any "
+            "that read grey Custom: the record that made them Custom has gone "
+            "with the rest, so they will read as never tracked. To stop the "
+            "notes coming back at all, turn the add-in off under Switches.")
 READ_ONLY = "This file is read-only, so nothing was changed."
 UNMARK_CONFIRM = ("Remove every UTP note and colour from this "
                   "document?\n\nPresets are left alone, and nothing is saved. "
-                  "Check this document works them all out again.")
+                  "Check this document works most of them out again.\n\nNot the "
+                  "grey Custom ones. An operation reads as Custom because of a "
+                  "hidden record saying which shop preset it was put on, and "
+                  "that record is part of what this removes. Those operations "
+                  "will read as never tracked afterwards, and the only way back "
+                  "is to pick their preset again.")
 
 # ---------------------------------------------------------------------------
 # The buttons
