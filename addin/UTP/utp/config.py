@@ -84,7 +84,7 @@ KEY_VALUES = "values"
 # Phase 1 changes nothing at all. Both of these stay False until the
 # diagnostics from real files say the decisions are right.
 MAY_WRITE_ON_DEMAND = True      # the button: one document, one deliberate press
-MAY_WRITE_ON_EVENTS = True      # edits and saves keep a document honest
+MAY_WRITE_ON_EVENTS = True      # opening a job and editing keep it honest
 
 # Was a rollout guard: edits and saves only wrote to a document the button
 # had already been pressed in, so a first deployment could not quietly mark a
