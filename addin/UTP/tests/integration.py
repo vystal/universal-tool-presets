@@ -140,6 +140,32 @@ def _attached(bench):
     return "PASS", "%d handlers, keeping %s" % (len(events._handlers), held)
 
 
+@check("the libraries are read early, without anybody asking")
+def _warmed(bench):
+    """The mechanism that stops an edit or a save paying for the Hub read.
+
+    Two separate things, both needed: the custom event has to be registered and
+    held (an unheld one is collected, which is the fault that silenced the edit
+    listener once already), and the handler has to actually warm the cache when
+    Fusion runs it. The handler is called here directly, which is the same call
+    on the same thread Fusion makes it on.
+    """
+    if "warm event" not in events._held:
+        return "FAIL", ("the early read was never arranged, or its event was "
+                        "not kept alive: holding %s"
+                        % sorted(events._held.keys()))
+    library.forget()
+    started = time.time()
+    events._warm_now()
+    if not library.warm():
+        return "FAIL", "the handler ran and the libraries are still not read"
+    if library.incomplete():
+        return "FAIL", "a library would not open, so nothing can be decided"
+    tools, ok = library.cached(Quiet(), None)
+    return "PASS", ("read %d tools in %.1fs, before anybody needed them"
+                    % (len(tools), time.time() - started))
+
+
 @check("the edit listener fires")
 def _fires(bench):
     operation = bench.operations()[0]

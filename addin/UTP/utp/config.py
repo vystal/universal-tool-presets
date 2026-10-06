@@ -240,6 +240,18 @@ def is_a_utp(name):
 # Set it to 0 to go back to once a session.
 LIBRARY_STALE_AFTER = 1800
 
+# How long after the add-in loads to read the shop libraries, in seconds.
+#
+# The reading is the same whenever it happens, so it may as well happen before
+# anybody is waiting on it. Until this existed, somebody always paid for it at
+# a bad moment: the first edit of a session paid it with their dialog just
+# closed, and a save paid it mid-save.
+#
+# Long enough that the add-in is not competing with everything else Fusion does
+# while it starts, short enough to be finished before anybody has opened a job
+# and changed a feed. Set it to 0 to go back to reading only on demand.
+WARM_LIBRARIES_AFTER = 15.0
+
 # ---------------------------------------------------------------------------
 # Where UTPs live
 # ---------------------------------------------------------------------------

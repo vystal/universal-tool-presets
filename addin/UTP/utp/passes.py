@@ -728,8 +728,18 @@ def run(app, allow_writing=True):
                 report.note("this document has no manufacturing data")
                 return report.close(), {}, config.NOTHING_TO_CHECK
 
-            # Pressing the button is also what warms the cache the edit handler
-            # needs, so it always re-reads rather than trusting an old read.
+            # Always re-read: the button means "tell me what is in the library
+            # now", and an old reading could call a feed current that somebody
+            # changed a minute ago.
+            #
+            # It does NOT warm the cache, whatever it used to say here. It asks
+            # with wanted=, so it stops as soon as this document's tools are
+            # found, and library.cached deliberately keeps no partial reading.
+            # Measured 5 October: a check on Atom A49 OP2 read 2 libraries of 8
+            # in 3.3s, and two seconds later the log still said "the libraries
+            # have not been read yet this session". The cache is warmed by
+            # events.warm_later instead, which does not depend on anybody
+            # pressing anything.
             clock = _Clock(report)
             marks.forget_cost()
             shelf = _document_tools(cam)

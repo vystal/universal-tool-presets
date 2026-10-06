@@ -40,12 +40,23 @@ class _Colours:
 
 
 sys.modules["adsk.cam"].NoteIconColors = _Colours
+# Handler base classes, so events can be imported. They only have to be classes
+# somebody can inherit from; nothing here calls notify.
+for _base in ("CustomEventHandler", "DocumentEventHandler",
+              "ApplicationCommandEventHandler"):
+    setattr(sys.modules["adsk.core"], _base, type(_base, (object,), {}))
+sys.modules["adsk.cam"].OperationBaseEventHandler = type(
+    "OperationBaseEventHandler", (object,), {})
+sys.modules["adsk"].doEvents = lambda: None
 sys.modules["adsk"].cam = sys.modules["adsk.cam"]
 sys.modules["adsk"].core = sys.modules["adsk.core"]
 
 from utp import compat, config, marks, presets, settings, state, values  # noqa: E402
 
-config.SETTINGS_FILE = os.path.join(tempfile.mkdtemp(), "switches.json")
+_SCRATCH = tempfile.mkdtemp()
+config.SETTINGS_FILE = os.path.join(_SCRATCH, "switches.json")
+# Kept out of the real diagnostics folder: some of what is tested here logs.
+config.REPORT_DIR = _SCRATCH
 settings.forget()
 
 
@@ -459,3 +470,87 @@ def test_nothing_promises_an_undo_that_does_not_happen():
     # the way back that does work is offered instead
     assert "Remove all notes" in config.MARKED_TAIL
     assert "Check this document" in config.UNMARKED
+
+
+def test_the_thread_that_schedules_the_library_read_touches_nothing_of_fusions():
+    """The one rule the early read depends on.
+
+    Fusion's API is main-thread only; a worker thread that called it would take
+    Fusion down, not raise. So the thread sleeps and fires a custom event, and
+    every bit of the actual reading happens in the handler, which Fusion runs on
+    the main thread. This pins that: the thread is allowed to call
+    fireCustomEvent and nothing else.
+    """
+    import threading
+    from utp import events
+
+    class FakeApp:
+        def __init__(self):
+            self.fired = []
+            self.other = []
+
+        def registerCustomEvent(self, event_id):
+            self.other.append(("registerCustomEvent", threading.get_ident()))
+            return FakeEvent()
+
+        def unregisterCustomEvent(self, event_id):
+            self.other.append(("unregisterCustomEvent", threading.get_ident()))
+
+        def fireCustomEvent(self, event_id, payload):
+            self.fired.append((event_id, threading.get_ident()))
+
+        def __getattr__(self, name):
+            raise AssertionError("the warming thread reached for app.%s" % name)
+
+    class FakeEvent:
+        def add(self, handler):
+            return True
+
+        def remove(self, handler):
+            return True
+
+    was = config.WARM_LIBRARIES_AFTER
+    config.WARM_LIBRARIES_AFTER = 0.01
+    try:
+        app = FakeApp()
+        main = threading.get_ident()
+        assert events.warm_later(app) is True
+        events._warming["thread"].join(5)
+        assert not events._warming["thread"].is_alive()
+    finally:
+        config.WARM_LIBRARIES_AFTER = was
+        events._warming["off"] = True
+
+    # it fired, exactly once, and from a thread that is not this one
+    assert len(app.fired) == 1, app.fired
+    event_id, fired_on = app.fired[0]
+    assert event_id == events._WARM_EVENT_ID
+    assert fired_on != main, "the read was scheduled on the main thread"
+    # setting up happened here, on the main thread, before the thread started
+    assert all(where == main for _what, where in app.other), app.other
+
+
+def test_switching_the_add_in_off_turns_the_early_read_off_too():
+    """Nothing happens on its own when the master switch is off, and that has to
+    include work the add-in schedules for itself rather than work somebody asked
+    for.
+    """
+    from utp import events, library
+
+    with open(config.SETTINGS_FILE, "w", encoding="utf-8") as handle:
+        json.dump({"on": False}, handle)
+    settings.forget()
+    try:
+        assert not settings.on("on")
+        reads = []
+        was_cached, was_warm = library.cached, library.warm
+        library.cached = lambda *a, **k: reads.append(1) or ({}, False)
+        library.warm = lambda: False
+        try:
+            events._warm_now()
+        finally:
+            library.cached, library.warm = was_cached, was_warm
+        assert reads == [], "read the libraries with the add-in switched off"
+    finally:
+        os.remove(config.SETTINGS_FILE)
+        settings.forget()

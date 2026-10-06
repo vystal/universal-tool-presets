@@ -16,6 +16,7 @@ change along with dozens of notes they never touched. That is the same rule
 speed asks for, arrived at from a different direction.
 """
 
+import threading
 import time
 
 import adsk.core
@@ -591,6 +592,91 @@ def calls():
     return dict(_calls)
 
 
+# ---------------------------------------------------------------------------
+# Reading the libraries before anybody needs them
+# ---------------------------------------------------------------------------
+
+_WARM_EVENT_ID = "UTPWarmLibraries"
+_warming = {}
+
+
+class _WarmLibraries(adsk.core.CustomEventHandler):
+    """Reads the shop libraries, on the main thread, when Fusion is idle."""
+
+    def notify(self, args):
+        try:
+            _warm_now()
+        except Exception as exc:
+            diagnostics.session_log("reading the libraries early failed",
+                                    error=str(exc))
+
+
+def _warm_now():
+    if library.warm():
+        return
+    if not settings.on("on"):
+        diagnostics.session_log("not reading the libraries early",
+                                reason="the add-in is switched off")
+        return
+    started = time.time()
+    tools, ok = library.cached(_Quiet(), adsk.doEvents)
+    diagnostics.session_log(
+        "read the shop libraries before anybody needed them",
+        ok=ok, tools=len(tools), seconds=round(time.time() - started, 2),
+        why="so the first edit of the session does not pay for it")
+
+
+def warm_later(app):
+    """Arrange for the libraries to be read once, soon, while Fusion is idle.
+
+    A worker thread sleeps and then fires a custom event. The thread touches
+    nothing of Fusion's -- it sleeps and it fires, and that is the whole of it,
+    because the API is main-thread only and a worker that called it would take
+    Fusion down with it. What the custom event buys is not another thread to
+    work on but the timing: Fusion runs the handler on the main thread at a
+    moment it is idle, so the pause lands where nobody is waiting on it.
+
+    One attempt. If the Hub is not reachable yet this early, nothing is kept and
+    every path that needs the libraries reads them on demand exactly as it did
+    before, so the worst case is the behaviour this replaces.
+    """
+    if not config.WARM_LIBRARIES_AFTER:
+        return False
+    try:
+        # A stale registration from a previous load of the add-in would send
+        # this to a handler that no longer exists.
+        app.unregisterCustomEvent(_WARM_EVENT_ID)
+    except Exception:
+        pass
+    try:
+        event = app.registerCustomEvent(_WARM_EVENT_ID)
+        handler = _WarmLibraries()
+        event.add(handler)
+    except Exception as exc:
+        diagnostics.session_log("could not arrange to read the libraries early",
+                                error=str(exc))
+        return False
+    # Held for the same reason the CAM subscription is: the event wrapper going
+    # out of scope takes the subscription with it.
+    _held["warm event"] = event
+    _handlers.append((event, handler))
+    _warming["off"] = False
+
+    def sleep_then_fire():
+        time.sleep(config.WARM_LIBRARIES_AFTER)
+        if _warming.get("off"):
+            return
+        try:
+            app.fireCustomEvent(_WARM_EVENT_ID, "")
+        except Exception:
+            pass
+
+    thread = threading.Thread(target=sleep_then_fire, daemon=True)
+    _warming["thread"] = thread
+    thread.start()
+    return True
+
+
 def arm(app):
     """Start listening. Returns a list of what was armed, for the report."""
     armed = []
@@ -645,6 +731,10 @@ def arm(app):
                                     error=str(exc))
     diagnostics.session_log("listening", to=armed,
                             writing=config.MAY_WRITE_ON_EVENTS)
+    if warm_later(app):
+        diagnostics.session_log("will read the shop libraries shortly",
+                                in_seconds=config.WARM_LIBRARIES_AFTER,
+                                on="the main thread, once Fusion is idle")
     return armed
 
 
@@ -655,12 +745,19 @@ def disarm(app):
     offered to every event, which was both wasteful and capable of removing
     the wrong thing.
     """
+    # Told first, so a thread still sleeping does not fire into a handler that
+    # is about to be taken off its event.
+    _warming["off"] = True
     for event, handler in _handlers:
         try:
             event.remove(handler)
         except Exception:
             continue
     del _handlers[:]
+    try:
+        app.unregisterCustomEvent(_WARM_EVENT_ID)
+    except Exception:
+        pass
     # Released only now, after the handlers have been taken off them.
     _held.clear()
     diagnostics.session_log("stopped listening")
