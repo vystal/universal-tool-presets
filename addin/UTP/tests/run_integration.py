@@ -14,6 +14,15 @@ import sys
 where = os.path.join(guard.REPO, "addin", "UTP")
 sys.path.append(where)
 try:
+    # Dropped first, so an edited suite is the suite that runs. Without this the
+    # copy imported by the first run of a session stays in sys.modules and every
+    # later run silently re-runs it -- measured 6 October, two runs apart by a
+    # new check and a fixed one, both reporting the same twenty verdicts. Only
+    # the suite's own modules: utp belongs to the running add-in and a second
+    # copy of that is a different afternoon lost.
+    for name in [n for n in sys.modules
+                 if n == "tests" or n.startswith("tests.")]:
+        del sys.modules[name]
     from tests import integration
     answer = integration.run(app, say)
 finally:

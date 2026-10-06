@@ -29,6 +29,7 @@ something easier instead would be worse than no check.
 
 import gc
 import json
+import os
 import time
 
 import adsk.cam
@@ -71,6 +72,21 @@ class Bench:
             }
         self.setup_notes = [self.cam.setups.item(i).notes or ""
                             for i in range(self.cam.setups.count)]
+        # Every switch on for the duration, and put back afterwards.
+        #
+        # Without this the suite reads whatever the machine happens to be set
+        # to, and a switch that blocks writing turns most of these checks into
+        # vacuous passes rather than failures: "a pass marks the document and
+        # then settles" asks whether the second pass wrote more than the first,
+        # and 0 then 0 satisfies it perfectly. Measured 6 October, with the
+        # open switch off: one check failed honestly and three passed for no
+        # reason at all. A suite that goes quiet when it is disabled is worse
+        # than no suite.
+        self.switches = None
+        if os.path.exists(config.SETTINGS_FILE):
+            with open(config.SETTINGS_FILE, encoding="utf-8") as handle:
+                self.switches = handle.read()
+        settings.save({key: True for key, _l, _g, _s in settings.CONTROLS})
 
     def operations(self):
         return passes._walk(self.cam)[0]
@@ -81,7 +97,17 @@ class Bench:
         return tools if ok else {}
 
     def restore(self):
-        """Put the notes and colours back, so the suite can run again."""
+        """Put the notes, colours and switches back, so the suite can run again."""
+        try:
+            if self.switches is None:
+                if os.path.exists(config.SETTINGS_FILE):
+                    os.remove(config.SETTINGS_FILE)
+            else:
+                with open(config.SETTINGS_FILE, "w", encoding="utf-8") as handle:
+                    handle.write(self.switches)
+            settings.forget()
+        except Exception:
+            pass
         with marks.holding():
             for operation in self.operations():
                 was = self.before.get(operation.operationId)
@@ -128,6 +154,26 @@ def check(name):
 # The listeners: do they exist, fire, and survive?
 # ---------------------------------------------------------------------------
 
+@check("writing is permitted, so the rest of this suite means something")
+def _may_write_at_all(bench):
+    """Put first on purpose.
+
+    Most of what follows asks "did the add-in write the right thing". With
+    writing switched off they ask "did it write nothing", which almost all of
+    them accept. Bench forces every switch on, so this failing means something
+    other than the switches is refusing -- a read-only file, a document the
+    add-in will not claim, a newer schema -- and every later verdict should be
+    read as suspect.
+    """
+    allowed, held_back = events._may_write(bench.document, bench.operations(),
+                                           "open")
+    if not allowed:
+        return "FAIL", ("writing is refused: %s. Every check after this that "
+                        "expects a write will fail, and several that expect "
+                        "nothing will pass for the wrong reason." % held_back)
+    return "PASS", "the add-in may write to the bench"
+
+
 @check("the listeners are attached")
 def _attached(bench):
     held = sorted(events._held.keys())
@@ -140,30 +186,50 @@ def _attached(bench):
     return "PASS", "%d handlers, keeping %s" % (len(events._handlers), held)
 
 
-@check("the libraries are read early, without anybody asking")
+@check("entering Manufacture reads the libraries")
 def _warmed(bench):
-    """The mechanism that stops an edit or a save paying for the Hub read.
+    """What stops an edit or an open paying for the Hub read.
 
-    Two separate things, both needed: the custom event has to be registered and
-    held (an unheld one is collected, which is the fault that silenced the edit
-    listener once already), and the handler has to actually warm the cache when
-    Fusion runs it. The handler is called here directly, which is the same call
-    on the same thread Fusion makes it on.
+    The handler is called here the same way Fusion calls it, with the workspace
+    id it actually raises, so a wrong id shows up as a failure rather than as an
+    add-in that quietly never warms. That is not hypothetical: the save command
+    id was wrong for eight releases for exactly this reason.
     """
-    if "warm event" not in events._held:
-        return "FAIL", ("the early read was never arranged, or its event was "
-                        "not kept alive: holding %s"
-                        % sorted(events._held.keys()))
+    attached = [h for _e, h in events._handlers
+                if isinstance(h, events._WorkspaceActivated)]
+    if not attached:
+        return "FAIL", "nothing is listening for the workspace to change"
+
+    class Args:
+        class workspace:
+            id = config.CAM_WORKSPACES[0]
+
     library.forget()
     started = time.time()
-    events._warm_now()
+    attached[0].notify(Args())
     if not library.warm():
-        return "FAIL", "the handler ran and the libraries are still not read"
+        return "FAIL", ("entering %s did not read the libraries"
+                        % config.CAM_WORKSPACES[0])
     if library.incomplete():
         return "FAIL", "a library would not open, so nothing can be decided"
-    tools, ok = library.cached(Quiet(), None)
-    return "PASS", ("read %d tools in %.1fs, before anybody needed them"
-                    % (len(tools), time.time() - started))
+
+    # A workspace that is not Manufacture must not pay for it.
+    library.forget()
+
+    class Other:
+        class workspace:
+            id = "FusionSolidEnvironment"
+
+    attached[0].notify(Other())
+    if library.warm():
+        return "FAIL", "entering the Design workspace read the shop libraries"
+
+    attached[0].notify(Args())
+    tools, _ok = library.cached(Quiet(), None)
+    return "PASS", ("read %d tools in %.1fs on entering %s, and nothing on "
+                    "entering Design"
+                    % (len(tools), time.time() - started,
+                       config.CAM_WORKSPACES[0]))
 
 
 @check("the edit listener fires")
@@ -266,26 +332,46 @@ def _warm_edit(bench):
 # Saving
 # ---------------------------------------------------------------------------
 
-@check("a save marks the document and then settles")
-def _save_settles(bench):
-    library.forget()
-    first = events.mark_document(bench.document, "integration: first save")
-    second = events.mark_document(bench.document, "integration: second save")
+@check("an opening pass marks the document and then settles")
+def _open_settles(bench):
+    """A document is marked once and then left alone.
+
+    Something is deliberately broken first. Two passes that both write nothing
+    satisfy "it settles" without testing anything, and that is what this check
+    did until 6 October, when it passed with writing switched off.
+    """
+    operation, _verdict = bench.a_tracked_operation()
+    if operation is None:
+        return "SKIP", "no tracked operation on the bench"
+    held = operation.notes or ""
+    try:
+        with marks.holding():
+            operation.notes = marks.ours("deliberately wrong")
+        library.forget()
+        first = events.mark_document(bench.document, "integration: first pass")
+        second = events.mark_document(bench.document, "integration: second pass")
+    finally:
+        if (operation.notes or "") == marks.ours("deliberately wrong"):
+            with marks.holding():
+                operation.notes = held
+    if not first:
+        return "FAIL", ("a wrong note was waiting and the pass wrote nothing, "
+                        "so either it cannot write or it cannot see the fault")
     if second:
-        return "FAIL", ("the second save wrote %d more marks, so the document "
-                        "never settles and dirties on every save" % second)
-    return "PASS", "first save wrote %d, second wrote nothing" % first
+        return "FAIL", ("the second pass wrote %d more marks, so the document "
+                        "never settles and dirties every time" % second)
+    return "PASS", "first pass wrote %d, second wrote nothing" % first
 
 
-@check("a save keeps to its budget and carries on next time")
-def _save_budget(bench):
+@check("a pass keeps to its budget and carries on next time")
+def _pass_budget(bench):
     total = len(bench.operations())
     if total < 2:
         return "SKIP", "needs more than one operation"
     was = config.SAVE_SECONDS
-    # Small enough that one save cannot finish the document, not so small that
+    # Small enough that one pass cannot finish the document, not so small that
     # it cannot start it. Zero progress at all is a separate thing and the
-    # add-in now guarantees one operation a save whatever the budget says.
+    # add-in now guarantees one operation a pass whatever the budget says.
     config.SAVE_SECONDS = 0.001
     _state = events._state
     _state.pop("save cursor", None)
@@ -299,12 +385,61 @@ def _save_budget(bench):
         config.SAVE_SECONDS = was
         _state.pop("save cursor", None)
     if len(set(flat)) < 2:
-        return "FAIL", ("the cursor did not move across saves (%s), so a "
-                        "document too big for one save would never finish" % flat)
-    return "PASS", "cursor advanced across saves: %s" % flat
+        return "FAIL", ("the cursor did not move across passes (%s), so a "
+                        "document too big for one pass would never finish" % flat)
+    return "PASS", "cursor advanced across passes: %s" % flat
 
 
-@check("setups are marked by a save, but only a complete one")
+@check("a save writes nothing, so the document does not dirty")
+def _save_writes_nothing(bench):
+    """The regression guard for the double-save.
+
+    Marking during a save landed after Fusion's snapshot on a cloud document and
+    left the file modified the instant the save finished. Measured 6 October: a
+    save that wrote four notes left an asterisk in the title bar and needed a
+    second save to settle; a save with nothing to write did not. So a save writes
+    nothing at all now, and this holds that.
+
+    Deliberately done with a backlog waiting, because a save that writes nothing
+    when there was nothing to write proves nothing. One note is made wrong first,
+    and it has to still be wrong afterwards.
+
+    The handler is called with the id Fusion actually raises rather than a real
+    save being executed: a real save would persist whatever state the bench is
+    part-way through restoring.
+    """
+    operations = bench.operations()
+    if not operations:
+        return "SKIP", "no operations on the bench"
+    target = operations[0]
+    held = target.notes or ""
+    wrong = marks.ours("deliberately wrong, a save must not fix this")
+    try:
+        with marks.holding():
+            target.notes = wrong
+        before = [(o.name, o.notes or "") for o in bench.operations()]
+
+        class Args:
+            commandId = "PLM360SaveCommand"
+
+        events._CommandStarting().notify(Args())
+
+        after = [(o.name, o.notes or "") for o in bench.operations()]
+    finally:
+        with marks.holding():
+            target.notes = held
+    changed = [a[0] for a, b in zip(after, before) if a[1] != b[1]]
+    if changed:
+        return "FAIL", ("a save wrote to %d operation(s) (%s); on a cloud "
+                        "document those writes land after the snapshot and the "
+                        "file needs saving twice" % (len(changed), changed[:4]))
+    if not any(text == wrong for _name, text in after):
+        return "FAIL", "the wrong note vanished, so something else wrote instead"
+    return "PASS", ("%d operations, one with a wrong note waiting, and the save "
+                    "wrote nothing" % len(after))
+
+
+@check("setups are marked by a pass, but only a complete one")
 def _setups(bench):
     with marks.holding():
         for i in range(bench.cam.setups.count):

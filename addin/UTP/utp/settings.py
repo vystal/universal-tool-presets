@@ -34,7 +34,7 @@ from . import config
 CONTROLS = (
     ("on", "Add-in is on", None, None),
 
-    ("save", "When I save", "when", "MAY_WRITE_ON_EVENTS"),
+    ("open", "When I open a job", "when", "MAY_WRITE_ON_EVENTS"),
     ("edit", "When I edit", "when", "MAY_WRITE_ON_EVENTS"),
 
     ("mark", "Notes and colours", "what", None),
@@ -53,9 +53,10 @@ MEANS = {
           "own and the buttons that change things say so instead of doing "
           "it. Checking without changing anything still works, and so does "
           "Remove all notes.",
-    "save": "Saving a document brings the whole document's notes up to date "
-            "first, so they are part of that save rather than left over "
-            "after it.",
+    "open": "Opening a job brings its notes up to date as it opens, which is "
+            "where the cost is least noticeable and where nothing is waiting "
+            "on it. Saving writes nothing at all, so a save never leaves the "
+            "document needing a second one.",
     "edit": "Changing an operation updates that one operation's note "
             "straight away, inside your own edit, so one undo takes back "
             "both.",
@@ -127,6 +128,15 @@ def _read():
             if key not in saved:
                 # A switch this version has and the file does not, because
                 # the file was written by an older one. Its default stands.
+                #
+                # Except this one. "open" used to be "save", back when marking
+                # happened before a save instead of as a job opens. Somebody who
+                # turned that off was saying "do not do this on your own", and
+                # defaulting the new name to on would turn it back on for them
+                # without being asked, which is the one direction this file
+                # exists to prevent.
+                if key == "open" and saved.get("save") is False:
+                    held[key] = False
                 continue
             if not isinstance(saved[key], bool):
                 # Something is there and it is not true or false. 0 probably

@@ -16,7 +16,6 @@ change along with dozens of notes they never touched. That is the same rule
 speed asks for, arrived at from a different direction.
 """
 
-import threading
 import time
 
 import adsk.core
@@ -27,6 +26,12 @@ from . import compat, config, diagnostics, library, marks, settings, state
 _handlers = []
 _running = {"undo": False}
 _state = {}
+
+# What the last complete pass over each document found, keyed as _key() keys it.
+# Only so a save can say whether the job it is saving was ever swept: a save
+# writes nothing now, and this is the one cheap signal that would show the
+# marking had stopped happening at all.
+_swept = {}
 
 # Operations the edit handler saw before the libraries had been read. Emptied
 # when the dialog closes, which is where the reading happens.
@@ -82,12 +87,13 @@ def joined(document):
         _in_the_system.add(found)
 
 
-def _may_write(document, operations=(), trigger="save"):
+def _may_write(document, operations=(), trigger="open"):
     """Whether an event is allowed to write to this document.
 
-    The trigger says which switch to look at: somebody may want their saves
-    checked but not want notes moving under them as they edit, or the other
-    way about.
+    The trigger names the switch to look at, and must be one of settings.CONTROLS
+    -- settings.on answers True for a name it does not know, so a trigger that
+    does not exist reads as switched on. This defaulted to "save" for one commit
+    after the save switch became "open", which is exactly that.
     """
     if not settings.on("on"):
         return False, "the add-in is switched off"
@@ -222,12 +228,12 @@ def _cam_of(document):
         return None
 
 
-def mark_document(document, why):
-    """Bring a whole document up to date. Used before a save, and by it.
+def mark_document(document, why, may_read_libraries=True):
+    """Bring a whole document up to date. Used as a job opens.
 
-    Shared so that marking can happen before Fusion starts saving, where
-    what it writes becomes part of that save, rather than during, where it
-    lands after the snapshot and leaves the file dirty again.
+    may_read_libraries=False uses whatever reading is already held and never
+    goes to the Hub, for the caller that cannot afford three seconds: reading
+    inside a document open would stall the open itself.
     """
     with marks.holding():
         from . import passes
@@ -240,8 +246,10 @@ def mark_document(document, why):
         # one looks like the add-in being slow rather than the network being
         # read once.
         reading = time.time()
-        tools, ok = library.cached(report,
-                                   stale_after=config.LIBRARY_STALE_AFTER)
+        tools, ok = library.cached(
+            report,
+            stale_after=config.LIBRARY_STALE_AFTER if may_read_libraries
+            else None)
         reading = round(time.time() - reading, 2)
         if not ok:
             diagnostics.session_log("%s: nothing decided" % why,
@@ -355,6 +363,14 @@ def mark_document(document, why):
         left = len(all_operations) - looked
         _state.setdefault("save cursor", {})[_key(document)] = (
             (cursor + looked) % len(all_operations) if all_operations else 0)
+        if looked >= len(all_operations):
+            _swept[_key(document)] = (
+                "swept at %s, %d operations, %d written"
+                % (time.strftime("%H:%M:%S"), looked, wrote))
+        else:
+            _swept[_key(document)] = (
+                "partly swept at %s, %d of %d, %d left for next time"
+                % (time.strftime("%H:%M:%S"), looked, len(all_operations), left))
         diagnostics.session_log(
             why, document=getattr(document, "name", "?"), verdicts=counts,
             looked_at=looked, of=len(all_operations),
@@ -366,20 +382,76 @@ def mark_document(document, why):
         return wrote
 
 
+class _DocumentOpened(adsk.core.DocumentEventHandler):
+    """Bring a job up to date as it opens.
+
+    This is where the backlog is cleared, and it is here rather than on a save
+    because a save cannot do it. Marking during a save left the document dirty
+    the instant the save finished -- measured 6 October: a save that wrote four
+    notes left the title bar reading "UTP TEST bench*" and a second save was
+    needed to clear it, while a save with nothing to mark left it clean. For a
+    cloud document the writes land after Fusion has taken its snapshot. Opening
+    has no snapshot to miss, and it is a moment somebody already expects to wait.
+
+    Measured the same day, across four documents: documentOpened fires with the
+    CAM product present and every operation readable, whatever workspace the
+    document opens into -- a job saved in Design reported all thirteen of its
+    operations here. A document with no manufacturing data raises from
+    itemByProductType rather than returning None, which _cam_of allows for.
+
+    Done now rather than deferred to an idle moment on purpose. By the time an
+    idle handler runs, the active document can be a different one: measured three
+    times in one session, where a workspace change on one document was followed a
+    second later by activeDocument being another. A deferred pass would have to
+    carry its document with it, and getting that wrong marks the wrong job in
+    silence. The budget inside mark_document bounds what this costs.
+
+    It never reads the libraries. If they have not been read yet this session it
+    does nothing, because a Hub read inside an open would stall the open; by then
+    entering the Manufacture workspace has almost always done it first.
+    """
+
+    def notify(self, args):
+        try:
+            if not (settings.on("on") and settings.on("open")):
+                return
+            if marks.busy() or _running["undo"]:
+                return
+            document = getattr(args, "document", None)
+            if document is None:
+                return
+            if not library.warm():
+                diagnostics.session_log(
+                    "opened a job, nothing decided",
+                    document=getattr(document, "name", "?"),
+                    reason="the libraries have not been read yet this session",
+                    note="reading them inside an open would stall it; "
+                         "entering Manufacture reads them first")
+                return
+            mark_document(document, "marking the job that was opened",
+                          may_read_libraries=False)
+        except Exception as exc:
+            diagnostics.session_log("open handler failed", error=str(exc))
+
+
 class _DocumentSaving(adsk.core.DocumentEventHandler):
-    """Watches for a save that nothing marked first.
+    """Watches saves. Writes nothing, and that is the point.
 
-    This used to carry a second copy of the whole marking pass, for when
-    marking happened during a save rather than before it. Marking before the
-    save won that argument months ago, so the copy was unreachable, and it had
-    already drifted from the live one it was copied from.
+    A save used to mark the whole document first. It no longer does: for a cloud
+    document the writes land after Fusion's snapshot and leave the file dirty the
+    moment it finishes, which is the "I have to save twice" this add-in was
+    reported for. The backlog is cleared as a job opens instead.
 
-    What it does now is the job that copy could not: it fires for every save,
-    whatever Fusion called the command, so it can say when a save happened that
-    the command hook did not recognise. That matters because the hook matches
-    command ids exactly, and exact matching fails quietly -- a build that names
-    its save something else would simply stop being marked, with nothing
-    anywhere saying so. Now there is a line in the log.
+    What is left here is worth keeping. It fires for every save, whatever Fusion
+    called the command, so it can say when a save happened that the command hook
+    did not recognise -- the hook matches command ids exactly, and exact matching
+    fails quietly. A real Ctrl+S on a cloud document raises PLM360SaveCommand,
+    not SaveDocumentCommand, and because that id was chosen by reading names
+    rather than measuring, saving did nothing at all for eight releases with
+    nothing anywhere saying so. Now there is a line in the log.
+
+    It also says whether the job being saved was ever swept, which is the cheap
+    signal that marking has stopped happening.
     """
 
     def notify(self, args):
@@ -387,42 +459,48 @@ class _DocumentSaving(adsk.core.DocumentEventHandler):
             _calls["saves"] += 1
             document = getattr(args, "document", None)
             name = getattr(document, "name", "?")
-            marked = _state.pop("marked before save", None)
-            if marked is None:
+            state_of_it = _state.pop("marked before save", None)
+            if state_of_it is None:
                 diagnostics.session_log(
-                    "A SAVE THAT NOTHING MARKED FIRST", document=name,
+                    "A SAVE THIS BUILD DOES NOT RECOGNISE", document=name,
                     reason=("no command this build raised matched "
-                            "config.SAVE_COMMANDS, so the document was saved "
-                            "without being brought up to date"),
+                            "config.SAVE_COMMANDS. Nothing is written on a save "
+                            "any more, so this costs nothing today, but it means "
+                            "the id list is wrong and whatever next depends on "
+                            "knowing a save happened will not work"),
                     in_the_three_seconds_before_it=[
                         i for at, i in _recent if time.time() - at < 3.0],
                     fix="add the id Fusion actually raised to SAVE_COMMANDS")
                 return
             diagnostics.session_log("saved", document=name,
-                                    marked_before_it=marked)
+                                    wrote="nothing; a save does not write",
+                                    this_job=state_of_it)
         except Exception as exc:
             diagnostics.session_log("save handler failed", error=str(exc))
 
 
 class _DocumentSaved(adsk.core.DocumentEventHandler):
-    """Did writing during the save leave the file dirty again?
+    """Is the document clean after a save?
 
-    The marking runs on documentSaving, before the save, so that what it
-    writes is part of that save. If Fusion has already taken its snapshot by
-    then, the writes land after it and the document is modified the instant
-    it finishes, which would mean never being able to close one cleanly.
-    Asked rather than assumed.
+    It has to be. Nothing is written during a save any more, so anything that
+    leaves the file modified here is the add-in writing when it believes it is
+    not, and that is the fault worth catching: it is how the double-save came
+    back the first time, and it is invisible unless somebody is watching the
+    title bar.
     """
 
     def notify(self, args):
         try:
             document = getattr(args, "document", None)
+            modified = getattr(document, "isModified", "unknown")
             diagnostics.session_log(
-                "saved", document=getattr(document, "name", "?"),
-                modified_again=getattr(document, "isModified", "unknown"),
-                wrote_before_the_save=_state.pop("wrote_before_save", 0),
-                note="modified_again here can read false before Fusion has "
-                     "settled the flag; what the title bar says is the truth")
+                "settled after the save",
+                document=getattr(document, "name", "?"),
+                modified_again=modified,
+                should_be=False,
+                note="modified_again can read true here before Fusion has "
+                     "settled the flag; what the title bar says a moment later "
+                     "is the truth")
         except Exception:
             pass
 
@@ -440,19 +518,26 @@ class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
             _recent.append((time.time(), str(args.commandId)))
             del _recent[:-40]
             if str(args.commandId) in config.SAVE_COMMANDS:
-                # Recorded whatever happens next, so documentSaving can tell a
-                # save nothing recognised from one that was deliberately left
-                # alone. Without that, a build naming its save something else
-                # would stop being marked in silence.
-                _state["marked before save"] = "held back"
-                if (not marks.busy() and not _running["undo"]
-                        and settings.on("on") and settings.on("save")):
-                    app = adsk.core.Application.get()
-                    wrote = mark_document(
-                        app.activeDocument,
-                        "marking before the save (%s)" % args.commandId)
-                    _state["wrote_before_save"] = wrote
-                    _state["marked before save"] = "%d written" % wrote
+                # A save writes nothing. It used to mark the whole document
+                # first, on the understanding that commandStarting runs before
+                # Fusion takes its snapshot. For a cloud document it does not:
+                # measured 6 October, a save that wrote four notes left the
+                # document modified the moment it finished and needed a second
+                # save to settle, while a save with nothing to write left it
+                # clean. That is the "I have to save twice" this add-in was
+                # reported for in its first week.
+                #
+                # So the backlog is cleared as a job opens instead, where there
+                # is no snapshot to land after. All that happens here is the
+                # record of whether that worked, which costs a dict lookup and
+                # is the only thing that would show it had stopped working.
+                app = adsk.core.Application.get()
+                try:
+                    where = _key(app.activeDocument)
+                except Exception:
+                    where = None
+                _state["marked before save"] = _swept.get(
+                    where, "this job has not been swept this session")
             if args.commandId in ("UndoCommand", "RedoCommand"):
                 _running["undo"] = True
                 # Logged so the guard is visible. Without this an undo that
@@ -596,85 +681,56 @@ def calls():
 # Reading the libraries before anybody needs them
 # ---------------------------------------------------------------------------
 
-_WARM_EVENT_ID = "UTPWarmLibraries"
-_warming = {}
+def _warm_now(why):
+    """Read the shop libraries, if they have not been read yet this session.
 
-
-class _WarmLibraries(adsk.core.CustomEventHandler):
-    """Reads the shop libraries, on the main thread, when Fusion is idle."""
-
-    def notify(self, args):
-        try:
-            _warm_now()
-        except Exception as exc:
-            diagnostics.session_log("reading the libraries early failed",
-                                    error=str(exc))
-
-
-def _warm_now():
+    Three seconds or so. Called from somewhere a pause is survivable, never from
+    inside an operation edit, which is what the cache exists to protect.
+    """
     if library.warm():
-        return
+        return False
     if not settings.on("on"):
-        diagnostics.session_log("not reading the libraries early",
-                                reason="the add-in is switched off")
-        return
+        return False
     started = time.time()
     tools, ok = library.cached(_Quiet(), adsk.doEvents)
     diagnostics.session_log(
-        "read the shop libraries before anybody needed them",
-        ok=ok, tools=len(tools), seconds=round(time.time() - started, 2),
-        why="so the first edit of the session does not pay for it")
+        "read the shop libraries before anybody needed them", why=why,
+        ok=ok, tools=len(tools), seconds=round(time.time() - started, 2))
+    return ok
 
 
-def warm_later(app):
-    """Arrange for the libraries to be read once, soon, while Fusion is idle.
+class _WorkspaceActivated(adsk.core.WorkspaceEventHandler):
+    """Entering the Manufacture workspace is where the libraries get read.
 
-    A worker thread sleeps and then fires a custom event. The thread touches
-    nothing of Fusion's -- it sleeps and it fires, and that is the whole of it,
-    because the API is main-thread only and a worker that called it would take
-    Fusion down with it. What the custom event buys is not another thread to
-    work on but the timing: Fusion runs the handler on the main thread at a
-    moment it is idle, so the pause lands where nobody is waiting on it.
+    This was a worker thread firing a custom event a few seconds after the
+    add-in loaded. That was wrong twice over. It fired while Fusion was still
+    showing "Preparing your experience", so the event went nowhere and the
+    libraries were never read; and the add-in's thread firing into Fusion at the
+    same moment as another worker thread doing the same left that other thread
+    dead -- measured 6 October, the test agent stopped six seconds after the
+    first fire and never took another job.
 
-    One attempt. If the Hub is not reachable yet this early, nothing is kept and
-    every path that needs the libraries reads them on demand exactly as it did
-    before, so the worst case is the behaviour this replaces.
+    Entering Manufacture needs none of it. It is an ordinary event on the main
+    thread, it happens before anybody can touch an operation, it is exactly the
+    moment the libraries become relevant, and a pause here reads as a workspace
+    loading rather than as Fusion hanging. Measured the same day: it fires on
+    every switch in, and on opening a document that goes straight to CAM.
     """
-    if not config.WARM_LIBRARIES_AFTER:
-        return False
-    try:
-        # A stale registration from a previous load of the add-in would send
-        # this to a handler that no longer exists.
-        app.unregisterCustomEvent(_WARM_EVENT_ID)
-    except Exception:
-        pass
-    try:
-        event = app.registerCustomEvent(_WARM_EVENT_ID)
-        handler = _WarmLibraries()
-        event.add(handler)
-    except Exception as exc:
-        diagnostics.session_log("could not arrange to read the libraries early",
-                                error=str(exc))
-        return False
-    # Held for the same reason the CAM subscription is: the event wrapper going
-    # out of scope takes the subscription with it.
-    _held["warm event"] = event
-    _handlers.append((event, handler))
-    _warming["off"] = False
 
-    def sleep_then_fire():
-        time.sleep(config.WARM_LIBRARIES_AFTER)
-        if _warming.get("off"):
-            return
+    def notify(self, args):
         try:
-            app.fireCustomEvent(_WARM_EVENT_ID, "")
-        except Exception:
-            pass
-
-    thread = threading.Thread(target=sleep_then_fire, daemon=True)
-    _warming["thread"] = thread
-    thread.start()
-    return True
+            which = ""
+            try:
+                which = args.workspace.id
+            except Exception:
+                return
+            if which not in config.CAM_WORKSPACES:
+                return
+            if marks.busy() or _running["undo"]:
+                return
+            _warm_now("entering %s" % which)
+        except Exception as exc:
+            diagnostics.session_log("workspace handler failed", error=str(exc))
 
 
 def arm(app):
@@ -716,6 +772,9 @@ def arm(app):
         diagnostics.session_log("operationBaseChanged unavailable", error=str(exc))
 
     for label, event, handler in (
+            ("documents opening", app.documentOpened, _DocumentOpened()),
+            ("workspaces opening", app.userInterface.workspaceActivated,
+             _WorkspaceActivated()),
             ("document saving", app.documentSaving, _DocumentSaving()),
             ("document saved", app.documentSaved, _DocumentSaved()),
             ("commands starting", app.userInterface.commandStarting,
@@ -731,10 +790,6 @@ def arm(app):
                                     error=str(exc))
     diagnostics.session_log("listening", to=armed,
                             writing=config.MAY_WRITE_ON_EVENTS)
-    if warm_later(app):
-        diagnostics.session_log("will read the shop libraries shortly",
-                                in_seconds=config.WARM_LIBRARIES_AFTER,
-                                on="the main thread, once Fusion is idle")
     return armed
 
 
@@ -745,19 +800,12 @@ def disarm(app):
     offered to every event, which was both wasteful and capable of removing
     the wrong thing.
     """
-    # Told first, so a thread still sleeping does not fire into a handler that
-    # is about to be taken off its event.
-    _warming["off"] = True
     for event, handler in _handlers:
         try:
             event.remove(handler)
         except Exception:
             continue
     del _handlers[:]
-    try:
-        app.unregisterCustomEvent(_WARM_EVENT_ID)
-    except Exception:
-        pass
     # Released only now, after the handlers have been taken off them.
     _held.clear()
     diagnostics.session_log("stopped listening")

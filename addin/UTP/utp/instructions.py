@@ -97,13 +97,17 @@ date</em> in green. The count is only of operations being tracked, so a setup
 of twenty older operations and one tracked one says <em>1 tracked</em>.</p>
 
 <h2>When it runs</h2>
-<p>When you save a document, and when you change an operation. Nothing on
-opening a file, and nothing in the background.</p>
-<p>The first change you make after starting Fusion is not marked straight
-away: it has to read the shop libraries first, and doing that in the middle
-of your edit would stall Fusion for several seconds. Saving reads them and
-catches the whole document up, and everything after that is marked as it
-happens.</p>
+<p>When you open a job, and when you change an operation. Nothing in the
+background.</p>
+<p><strong>Saving writes nothing at all.</strong> It used to bring the whole
+document up to date first, which left the file needing a second save every
+time &mdash; so the catching up happens as a job opens instead, where nothing
+is waiting on it and there is no save for it to land after.</p>
+<p>It reads the shop libraries once a session, when you first go into the
+Manufacture workspace, so nothing you do afterwards waits for it. That read
+takes a few seconds and it is the only pause this adds. A job opened before
+that read is not marked until you go into Manufacture, change something in it,
+or press <em>Check this document</em>.</p>
 
 <h2>Turning it off</h2>
 <p>Press <em>Switches</em> in the UTP panel. There is a checkbox for each of
@@ -116,11 +120,11 @@ set them until you change them.</p>
 <h2>If you do not want a particular note</h2>
 <p><strong>Clear its text.</strong> Nothing will put it back while you are
 still editing, so you can get it out of your way.</p>
-<p>It does come back on the next save, and that is on purpose: a note says
-where the operation stands, so saving works it out again like everything
+<p>It does come back next time you open the job, and that is on purpose: a note
+says where the operation stands, so opening works it out again like everything
 else. To stop the notes altogether, use <em>Switches</em>.</p>
 <p><em>Remove all notes</em> takes every note and colour out of the whole
-document at once. Same thing applies: saving or checking works them out
+document at once. Same thing applies: opening or checking works them out
 again, so turn the notes off under <em>Switches</em> first if you want them
 to stay gone.</p>
 

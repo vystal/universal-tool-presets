@@ -240,17 +240,18 @@ def is_a_utp(name):
 # Set it to 0 to go back to once a session.
 LIBRARY_STALE_AFTER = 1800
 
-# How long after the add-in loads to read the shop libraries, in seconds.
+# Entering one of these is what reads the shop libraries, if they have not been
+# read yet this session.
 #
 # The reading is the same whenever it happens, so it may as well happen before
-# anybody is waiting on it. Until this existed, somebody always paid for it at
-# a bad moment: the first edit of a session paid it with their dialog just
-# closed, and a save paid it mid-save.
+# anybody is waiting on it. It used to be paid for at the worst moments: the
+# first edit of a session paid it with the dialog just closed, and a save paid it
+# mid-save. Entering the workspace where tools matter is both earlier than either
+# and somewhere a pause reads as a workspace loading.
 #
-# Long enough that the add-in is not competing with everything else Fusion does
-# while it starts, short enough to be finished before anybody has opened a job
-# and changed a feed. Set it to 0 to go back to reading only on demand.
-WARM_LIBRARIES_AFTER = 15.0
+# Measured 6 October: this is the id Fusion raises for Manufacture, and it fires
+# on every switch in as well as on opening a document that goes straight to CAM.
+CAM_WORKSPACES = ("CAMEnvironment",)
 
 # ---------------------------------------------------------------------------
 # Where UTPs live
@@ -536,9 +537,9 @@ NEWER_ADDIN = ("this file was written by a newer UTP add-in (schema %d, this "
 
 UNMARKED = ("Removed the UTP notes from %d of %d operations and setups.\n\n"
             "Press Check this document to work them out again. Presets were "
-            "left alone, because an operation may be using one.\n\nSaving or checking this document "
-            "works the notes out again. To stop that, turn the add-in off "
-            "under Switches.")
+            "left alone, because an operation may be using one.\n\nOpening or "
+            "checking this document works the notes out again. To stop that, "
+            "turn the add-in off under Switches.")
 READ_ONLY = "This file is read-only, so nothing was changed."
 UNMARK_CONFIRM = ("Remove every UTP note and colour from this "
                   "document?\n\nPresets are left alone, and nothing is saved. "

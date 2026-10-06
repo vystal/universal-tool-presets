@@ -43,7 +43,7 @@ sys.modules["adsk.cam"].NoteIconColors = _Colours
 # Handler base classes, so events can be imported. They only have to be classes
 # somebody can inherit from; nothing here calls notify.
 for _base in ("CustomEventHandler", "DocumentEventHandler",
-              "ApplicationCommandEventHandler"):
+              "ApplicationCommandEventHandler", "WorkspaceEventHandler"):
     setattr(sys.modules["adsk.core"], _base, type(_base, (object,), {}))
 sys.modules["adsk.cam"].OperationBaseEventHandler = type(
     "OperationBaseEventHandler", (object,), {})
@@ -472,62 +472,29 @@ def test_nothing_promises_an_undo_that_does_not_happen():
     assert "Check this document" in config.UNMARKED
 
 
-def test_the_thread_that_schedules_the_library_read_touches_nothing_of_fusions():
-    """The one rule the early read depends on.
+def test_nothing_reads_the_libraries_on_a_thread_of_its_own():
+    """The libraries are read on Fusion's main thread, from an ordinary event.
 
-    Fusion's API is main-thread only; a worker thread that called it would take
-    Fusion down, not raise. So the thread sleeps and fires a custom event, and
-    every bit of the actual reading happens in the handler, which Fusion runs on
-    the main thread. This pins that: the thread is allowed to call
-    fireCustomEvent and nothing else.
+    This was a worker thread firing a custom event a few seconds after load.
+    It cost a session: the fire landed while Fusion was still starting, so the
+    read never happened, and another worker thread calling into Fusion at the
+    same moment died -- the test agent stopped taking jobs and stayed stopped.
+    The API is main-thread only and nothing here is worth a thread.
+
+    Pinned because the thread is the tempting fix every time this looks slow.
     """
-    import threading
     from utp import events
 
-    class FakeApp:
-        def __init__(self):
-            self.fired = []
-            self.other = []
-
-        def registerCustomEvent(self, event_id):
-            self.other.append(("registerCustomEvent", threading.get_ident()))
-            return FakeEvent()
-
-        def unregisterCustomEvent(self, event_id):
-            self.other.append(("unregisterCustomEvent", threading.get_ident()))
-
-        def fireCustomEvent(self, event_id, payload):
-            self.fired.append((event_id, threading.get_ident()))
-
-        def __getattr__(self, name):
-            raise AssertionError("the warming thread reached for app.%s" % name)
-
-    class FakeEvent:
-        def add(self, handler):
-            return True
-
-        def remove(self, handler):
-            return True
-
-    was = config.WARM_LIBRARIES_AFTER
-    config.WARM_LIBRARIES_AFTER = 0.01
-    try:
-        app = FakeApp()
-        main = threading.get_ident()
-        assert events.warm_later(app) is True
-        events._warming["thread"].join(5)
-        assert not events._warming["thread"].is_alive()
-    finally:
-        config.WARM_LIBRARIES_AFTER = was
-        events._warming["off"] = True
-
-    # it fired, exactly once, and from a thread that is not this one
-    assert len(app.fired) == 1, app.fired
-    event_id, fired_on = app.fired[0]
-    assert event_id == events._WARM_EVENT_ID
-    assert fired_on != main, "the read was scheduled on the main thread"
-    # setting up happened here, on the main thread, before the thread started
-    assert all(where == main for _what, where in app.other), app.other
+    source = open(os.path.join(HERE, "..", "utp", "events.py"),
+                  encoding="utf-8").read()
+    for banned in ("import threading", "threading.Thread",
+                   "registerCustomEvent", "fireCustomEvent"):
+        assert banned not in source, (
+            "events.py is back to driving Fusion off its own thread (%r). "
+            "The libraries are read from workspaceActivated, on the main "
+            "thread." % banned)
+    assert hasattr(events, "_WorkspaceActivated")
+    assert config.CAM_WORKSPACES, "nothing names the workspace that reads them"
 
 
 def test_switching_the_add_in_off_turns_the_early_read_off_too():
@@ -547,10 +514,41 @@ def test_switching_the_add_in_off_turns_the_early_read_off_too():
         library.cached = lambda *a, **k: reads.append(1) or ({}, False)
         library.warm = lambda: False
         try:
-            events._warm_now()
+            events._warm_now("test")
         finally:
             library.cached, library.warm = was_cached, was_warm
         assert reads == [], "read the libraries with the add-in switched off"
     finally:
         os.remove(config.SETTINGS_FILE)
         settings.forget()
+
+
+def test_every_switch_the_code_asks_about_is_a_switch_that_exists():
+    """settings.on answers True for a name it does not know.
+
+    That is the right default for a file written by an older version, and a trap
+    for a typo or a rename: a switch that does not exist reads as switched on, so
+    the thing it was meant to govern happens anyway, silently. It happened --
+    _may_write kept a default of trigger="save" after the save switch was renamed
+    to "open", which would have ignored that switch entirely.
+
+    So every literal the package passes to settings.on has to be a real control.
+    """
+    import glob
+    import re
+
+    known = {key for key, _l, _g, _s in settings.CONTROLS}
+    package = os.path.join(HERE, "..", "utp")
+    asked = {}
+    for path in glob.glob(os.path.join(package, "*.py")):
+        text = open(path, encoding="utf-8").read()
+        for found in re.finditer(r"""(?:settings\.)?on\(["'](\w+)["']\)""", text):
+            asked.setdefault(found.group(1), []).append(os.path.basename(path))
+        # Defaults that name a switch, like trigger="open" on _may_write.
+        for found in re.finditer(r"""trigger\s*=\s*["'](\w+)["']""", text):
+            asked.setdefault(found.group(1), []).append(os.path.basename(path))
+    assert asked, "found nothing asking about switches; the pattern is wrong"
+    unknown = {name: where for name, where in asked.items() if name not in known}
+    assert not unknown, (
+        "these are asked about but are not switches, so they read as on: %s. "
+        "Known switches: %s" % (unknown, sorted(known)))
