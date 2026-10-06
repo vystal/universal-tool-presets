@@ -663,58 +663,49 @@ def _icons(bench):
     return "PASS", "Yellow, Red and Blue all written and read back"
 
 
-@check("a tool whose values were not read is unknown, never current")
-def _values_not_read(bench):
-    """The property the cheap read rests on.
+@check("a reading covers every library, and is kept")
+def _whole_and_kept(bench):
+    """Both halves of the fault that cost four releases.
 
-    The warm reading holds every tool's name and id and no values at all, so the
-    whole shop is known but nothing is judged from it until the values for a
-    document's own tools are topped up. If a tool without values ever compared
-    as matching, every operation in the shop would go green on a reading that
-    had looked at nothing. state.reconcile has to answer unknown.
+    The read used to stop as soon as one document's tools were found. A tool
+    missing from a reading is indistinguishable from a tool that is not in the
+    shop libraries at all, and that verdict -- "not a shop tool" -- takes the
+    note and the colour off. So such a reading could never be cached, which
+    meant the check button paid for a read and kept nothing: measured 5 October,
+    a check read 2 libraries of 8 in 3.3s and two seconds later the log still
+    said the libraries had not been read this session. The first edit of every
+    session then paid for another read.
 
-    This replaces a check on the old partial read, where a library was skipped
-    entirely and tools were simply absent -- and an absent tool reads as "not a
-    shop tool", which removes the note and the colour.
+    Both are gone, and this is what holds them gone.
     """
     library.forget()
     quiet = Quiet()
-    tools, ok = library.cached(quiet, None, wanted=set())
+    tools, ok = library.cached(quiet, None)
     if not ok:
         return "SKIP", "the libraries could not be read"
-    if library.detailed():
-        return "FAIL", ("asked for no values and got them for %d tools"
-                        % len(library.detailed()))
-    if not tools:
-        return "FAIL", "no tools at all, so nothing was read"
+    if not library.warm():
+        return "FAIL", ("the reading was not kept, so the next edit or open "
+                        "pays for another one")
+    first = set(tools)
+    if not first:
+        return "FAIL", "no tools at all"
 
-    verdicts = set()
-    seen = {}
-    for operation in bench.operations():
-        verdicts.add(state.reconcile(operation, tools, seen)["state"])
-    wrong = verdicts & {state.CURRENT, state.BEHIND, state.CUSTOM}
-    if wrong:
-        return "FAIL", ("judged operations from a reading with no values in it: "
-                        "%s. A green note here means nothing was compared."
-                        % sorted(wrong))
+    # Reading again must describe the same shop, not a subset of it.
+    library.forget()
+    again, ok = library.cached(quiet, None)
+    if ok and set(again) != first:
+        missing = len(first - set(again))
+        return "FAIL", ("two readings of the same libraries disagree by %d "
+                        "tools; a tool missing from one reads as 'not a shop "
+                        "tool' and loses its note" % missing)
 
-    # And the top-up fills them in, from the libraries holding them only.
-    shelf = set(passes._document_tools(bench.cam))
-    tools, ok = library.cached(quiet, None, wanted=shelf)
-    got = library.detailed()
-    if not shelf & got:
-        return "FAIL", ("topping up read values for none of this document's %d "
-                        "tools" % len(shelf))
-    after = set()
-    seen = {}
-    for operation in bench.operations():
-        after.add(state.reconcile(operation, tools, seen)["state"])
-    if not after & {state.CURRENT, state.BEHIND, state.CUSTOM}:
-        return "FAIL", ("after the top-up nothing could still be judged: %s"
-                        % sorted(after))
-    return "PASS", ("no values read: everything unknown; topped up %d of this "
-                    "document's %d tools: %s"
-                    % (len(shelf & got), len(shelf), sorted(after)))
+    # And a second call does not re-read.
+    started = time.time()
+    library.cached(quiet, None)
+    if time.time() - started > 0.5:
+        return "FAIL", "a second call re-read the libraries instead of using "                       "the one it had"
+    return "PASS", ("%d tools over every library, kept, and not read twice"
+                    % len(first))
 
 
 @check("default presets are left alone")

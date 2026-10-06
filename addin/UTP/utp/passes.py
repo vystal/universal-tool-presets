@@ -257,13 +257,7 @@ def _review_versions(cam, decided, tools, report, writing):
     allowed = writing and settings.on("stamp")
     if versions.review(libraries, wanted.values(), report, allowed) and allowed:
         library.forget()          # the numbers just moved; read them again
-        # Values only for the tools whose presets were just stamped, which are
-        # this document's. Reading every feed in the shop to re-read eleven of
-        # them is two seconds for nothing.
-        fresh, ok = library.cached(
-            report, adsk.doEvents, force=True,
-            wanted={preset.tool_id for preset in wanted.values()
-                    if getattr(preset, "tool_id", None)})
+        fresh, ok = library.cached(report, adsk.doEvents, force=True)
         if ok:
             return fresh
     return tools
@@ -738,22 +732,21 @@ def run(app, allow_writing=True):
             # now", and an old reading could call a feed current that somebody
             # changed a minute ago.
             #
-            # It does NOT warm the cache, whatever it used to say here. It asks
-            # with wanted=, so it stops as soon as this document's tools are
-            # found, and library.cached deliberately keeps no partial reading.
-            # Measured 5 October: a check on Atom A49 OP2 read 2 libraries of 8
-            # in 3.3s, and two seconds later the log still said "the libraries
-            # have not been read yet this session". The cache is warmed by
-            # events.warm_later instead, which does not depend on anybody
-            # pressing anything.
+            # This also warms the cache, now that it does. It used to ask with
+            # wanted=, which stopped as soon as this document's tools were
+            # found, and a reading with tools missing from it can never be kept
+            # -- an absent tool reads as "not a shop tool" and that removes a
+            # note. So the button paid for a read and cached nothing: measured
+            # 5 October, a check on Atom A49 OP2 read 2 libraries of 8 in 3.3s
+            # and two seconds later the log still said the libraries had not
+            # been read this session. Every library is read now.
             clock = _Clock(report)
             marks.forget_cost()
             shelf = _document_tools(cam)
             resolve = _id_by_description(shelf)
             clock.at("read the document's tools")
 
-            tools, ok = library.cached(report, adsk.doEvents, force=True,
-                                       wanted=set(shelf))
+            tools, ok = library.cached(report, adsk.doEvents, force=True)
             clock.at("read the Hub libraries")
             if not ok:
                 report.note("stopping: without the library nothing can be decided")

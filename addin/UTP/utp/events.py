@@ -246,19 +246,8 @@ def mark_document(document, why, may_read_libraries=True):
         # one looks like the add-in being slow rather than the network being
         # read once.
         reading = time.time()
-        # The tools this document uses, so the warm reading -- which holds every
-        # tool's name but no values -- can top theirs up from the one or two
-        # libraries holding them. Without naming them, every operation here
-        # would read as unknown.
-        mine = None
-        cam_now = _cam_of(document)
-        if cam_now is not None:
-            try:
-                mine = set(passes._document_tools(cam_now))
-            except Exception:
-                mine = None
         tools, ok = library.cached(
-            report, wanted=mine,
+            report,
             stale_after=config.LIBRARY_STALE_AFTER if may_read_libraries
             else None)
         reading = round(time.time() - reading, 2)
@@ -611,19 +600,7 @@ def _mark_what_they_just_edited(command):
             "reading the libraries after an edit", command=command,
             reason=("first edit of the session; the dialog has closed so this "
                     "is the moment to pay for it"))
-    from . import passes
-    mine = None
-    for entity in _waiting:
-        owner, _guessed = _document_of(entity, app)
-        cam_now = _cam_of(owner) if owner is not None else None
-        if cam_now is not None:
-            try:
-                mine = set(passes._document_tools(cam_now))
-            except Exception:
-                mine = None
-            break
     tools, ok = library.cached(_Quiet(), adsk.doEvents if cold else None,
-                               wanted=mine,
                                stale_after=config.LIBRARY_STALE_AFTER)
     if not ok:
         return
@@ -707,12 +684,9 @@ def calls():
 def _warm_now(why):
     """Read the shop libraries: the first time, and again once it goes stale.
 
-    Which tools exist, not what their presets hold -- wanted=set() asks for no
-    values at all. That is half the cost, about two seconds against four, and
-    the values for the tools a job actually uses are topped up from the one or
-    two libraries holding them when that job is judged, for a tenth of a second
-    each. A shop of 470 tools has no reason to hand over every feed so one job
-    using 27 can be read.
+    About 3.4 seconds for eight libraries. Nearly all of it is opening them and
+    enumerating their presets; the values are 0.35s of it, so there is nothing
+    here worth deferring -- see library.read.
 
     Called from somewhere a pause is survivable, never from inside an operation
     edit, which is what the cache exists to protect.
@@ -721,14 +695,14 @@ def _warm_now(why):
         return False
     was = library.warm()
     started = time.time()
-    tools, ok = library.cached(_Quiet(), adsk.doEvents, wanted=set(),
-                              stale_after=config.LIBRARY_STALE_AFTER)
+    tools, ok = library.cached(_Quiet(), adsk.doEvents,
+                               stale_after=config.LIBRARY_STALE_AFTER)
     if was and time.time() - started < 0.1:
         return ok               # nothing was read; it was already in hand
     diagnostics.session_log(
         "read the shop libraries before anybody needed them", why=why,
-        ok=ok, tools=len(tools), values_for=len(library.detailed()),
-        again=was or None, seconds=round(time.time() - started, 2))
+        ok=ok, tools=len(tools), again=was or None,
+        seconds=round(time.time() - started, 2))
     return ok
 
 

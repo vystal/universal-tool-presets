@@ -39,35 +39,13 @@ from . import config, values, versions
 
 
 class LibraryPreset:
-    """One preset in a shop library.
-
-    detail=False reads its name and id and stops there. Reading the values is
-    half the cost of reading the libraries at all -- measured 6 October, opening
-    all eight and listing 470 tools takes 2.0 seconds and reading every preset's
-    values takes another 2.0 -- and a shop of 470 tools has no reason to hand
-    over all of them so one job using 27 can be judged.
-
-    A preset without its values is not a preset that matches. state.reconcile
-    answers "unknown" when either side holds no values, never "current", so the
-    worst a missing top-up can do is leave an operation unjudged and say so.
-    That is the whole reason this is safe and the old partial read was not: that
-    one left tools *absent*, and an absent tool reads as "not a shop tool",
-    which takes the note and the colour off.
-    """
-
-    def __init__(self, preset, tool_id, library_path, library_url=None,
-                 detail=True):
+    def __init__(self, preset, tool_id, library_path, library_url=None):
         self.id = preset.id
         self.name = preset.name
         self.tool_id = tool_id
         self.library = library_path
         # Kept so a version can be written back. The path is only a label.
         self.library_url = library_url
-        self.detailed = detail
-        if not detail:
-            self.values = {}
-            self.version = None
-            return
         self.values = values.scalars(preset)
         # Identity is the preset's own id, so nothing is stored for it. The
         # version is a label and may simply not be there.
@@ -108,7 +86,7 @@ class LibraryPreset:
 
 
 class LibraryTool:
-    def __init__(self, tool, library_path, library_url=None, detail=True):
+    def __init__(self, tool, library_path, library_url=None):
         self.id = tool_id(tool)
         self.description = tool.description
         self.library = library_path
@@ -127,11 +105,10 @@ class LibraryTool:
         # Presets Fusion made rather than somebody in the shop. See
         # config.NOT_A_UTP_NAMES.
         self.ignored = 0
-        self.detailed = detail
         for index in range(tool.presets.count):
             try:
                 preset = LibraryPreset(tool.presets.item(index), self.id,
-                                       library_path, library_url, detail)
+                                       library_path, library_url)
             except Exception:
                 self.unreadable += 1
                 continue
@@ -142,7 +119,7 @@ class LibraryTool:
                 # passed over rather than leaving a tool looking presetless.
                 self.ignored += 1
                 continue
-            if detail and not preset.values:
+            if not preset.values:
                 self.valueless += 1
             self.presets[preset.id] = preset
 
@@ -188,10 +165,7 @@ def _walk(libraries, url, depth=0, path="", max_depth=6):
     return found
 
 
-_cache = {"tools": None, "ok": False, "read at": 0.0, "missed": False,
-          # Tool ids whose preset values have actually been read. The rest are
-          # in "tools" by name and id only, and are topped up on demand.
-          "detailed": set()}
+_cache = {"tools": None, "ok": False, "read at": 0.0, "missed": False}
 
 
 def warm():
@@ -215,71 +189,7 @@ def age():
     return time.time() - _cache["read at"]
 
 
-def _top_up(report, ids, do_events=None):
-    """Read the values for these tools, opening only the libraries holding them.
-
-    Opening one library is about a tenth of a second, against two seconds for
-    all eight, so the second document of a session costs almost nothing. Tools
-    already detailed are skipped, and anything that cannot be found is left
-    alone: a tool without values reads as unknown, never as current.
-    """
-    held = _cache["tools"] or {}
-    short = {found for found in ids
-             if found in held and found not in _cache["detailed"]}
-    if not short:
-        return 0
-    by_library = {}
-    for found in short:
-        url = getattr(held[found], "library_url", None)
-        if url is None:
-            continue
-        by_library.setdefault(id(url), (url, []))[1].append(found)
-    done = 0
-    try:
-        libraries = adsk.cam.CAMManager.get().libraryManager.toolLibraries
-    except Exception:
-        report.failed("could not reach the libraries to read values")
-        return 0
-    for url, ids_here in by_library.values():
-        try:
-            library = libraries.toolLibraryAtURL(url)
-        except Exception:
-            library = None
-        if library is None:
-            report.failed("could not reopen a library to read its values")
-            continue
-        for index in range(library.count):
-            try:
-                found = tool_id(library.item(index))
-            except Exception:
-                continue
-            if found not in ids_here:
-                continue
-            was = held[found]
-            try:
-                fresh = LibraryTool(library.item(index), was.library,
-                                    was.library_url, True)
-            except Exception:
-                continue
-            if fresh.id:
-                held[fresh.id] = fresh
-                _cache["detailed"].add(fresh.id)
-                done += 1
-            if do_events is not None:
-                do_events()
-    report.note("read the values for tools this document uses",
-                tools=done, asked_for=len(short),
-                libraries_reopened=len(by_library))
-    if done < len(short):
-        report.note("SOME TOOLS' VALUES COULD NOT BE READ",
-                    count=len(short) - done,
-                    consequence=("operations using them are reported as "
-                                 "unknown rather than current, so nothing is "
-                                 "claimed that was not read"))
-    return done
-
-
-def cached(report, do_events=None, force=False, wanted=None, stale_after=None):
+def cached(report, do_events=None, force=False, stale_after=None):
     """The libraries, read once per session.
 
     An operation edit must not pay for a Hub read: it took 6.7 seconds the
@@ -306,34 +216,19 @@ def cached(report, do_events=None, force=False, wanted=None, stale_after=None):
             report.note("the reading of the shop libraries was old, so it was "
                         "taken again",
                         seconds_old=round(time.time() - _cache["read at"]))
-        # Values for what was already detailed as well as for what is being
-        # asked about, so a refresh does not quietly drop tools that were
-        # judged a minute ago. force means the button, which wants everything.
-        for_values = None
-        if wanted is not None:
-            for_values = set(wanted) | set(_cache["detailed"] or ())
-        tools, ok, whole = read(report, do_events, for_values)
+        tools, ok, whole = read(report, do_events)
         if not whole:
             return tools, ok
         _cache["tools"], _cache["ok"] = tools, ok
         _cache["read at"] = time.time()
-    elif wanted:
-        # The reading stands; it just has not looked at these tools yet.
-        _top_up(report, set(wanted), do_events)
     return _cache["tools"], _cache["ok"]
 
 
 def forget():
     _cache["tools"], _cache["ok"], _cache["read at"] = None, False, 0.0
-    _cache["detailed"] = set()
 
 
-def detailed():
-    """Tool ids whose preset values have been read."""
-    return set(_cache["detailed"] or ())
-
-
-def read(report, do_events=None, wanted=None):
+def read(report, do_events=None):
     """Every tool in every Hub library, keyed by tool id.
 
     Returns (tools, ok, whole). ok is False when the library could not be
@@ -348,10 +243,13 @@ def read(report, do_events=None, wanted=None):
     for a read and cached nothing, and the first edit of every session paid for
     another. Both are gone.
 
-    wanted names the tools whose preset values to read. Everything else gets its
-    name and id only, which is half the work. Those tools can be topped up later
-    from the one library that holds them, cheaply, when some document turns out
-    to need them. wanted=None reads every value, which is what the button wants.
+    Reading the preset values is not the expensive part, whatever it looks like.
+    Measured 6 October, for 8 libraries, 470 tools and 441 presets: opening the
+    libraries 1.82s, reading every tool's id 0.07s, enumerating the presets for
+    their ids and names 1.11s, and reading every value in all of them 0.35s.
+    Identity is the cost and identity cannot be deferred, so an attempt to read
+    values lazily and top them up per document was both slower (3.03s plus
+    0.85s a document, against 3.39s once) and more code. Do not try it again.
     """
     tools = {}
     try:
@@ -373,9 +271,6 @@ def read(report, do_events=None, wanted=None):
     # documentation pages define as "never put on a shop preset". The person
     # sees nothing flagged and ships the old feeds.
     missed = []
-    # The tools whose values are worth reading now. None means all of them.
-    detail_for = set(wanted) if wanted is not None else None
-    detailed = set()
     for path, asset_url in assets:
         try:
             library = libraries.toolLibraryAtURL(asset_url)
@@ -388,16 +283,9 @@ def read(report, do_events=None, wanted=None):
             continue
         read_count += 1
         for index in range(library.count):
-            # Identity first, cheaply, so the decision about values can be
-            # made per tool rather than per library.
-            try:
-                found = tool_id(library.item(index))
-            except Exception:
-                found = None
-            detail = detail_for is None or found in detail_for
             try:
                 tool = LibraryTool(library.item(index), path.lstrip("/"),
-                                   asset_url, detail)
+                                   asset_url)
             except Exception:
                 continue
             if tool.id:
@@ -406,16 +294,11 @@ def read(report, do_events=None, wanted=None):
                 unreadable += tool.unreadable
                 valueless += tool.valueless
                 ignored += tool.ignored
-                if detail:
-                    detailed.add(tool.id)
             if do_events is not None and index % config.OPERATIONS_PER_CHUNK == 0:
                 do_events()
 
     report.note("read the Hub libraries",
-                libraries=read_count, tools=len(tools), presets=preset_count,
-                values_read_for=("every tool" if detail_for is None
-                                 else "%d tools of %d" % (len(detailed),
-                                                          len(tools))))
+                libraries=read_count, tools=len(tools), presets=preset_count)
     if ignored:
         report.note("presets Fusion created rather than somebody in the shop",
                     count=ignored, names=list(config.NOT_A_UTP_NAMES),
@@ -438,5 +321,4 @@ def read(report, do_events=None, wanted=None):
                                  "operations using it are left exactly as they "
                                  "are rather than being read as untracked"))
     _cache["missed"] = bool(missed)
-    _cache["detailed"] = detailed
     return tools, bool(tools), True
