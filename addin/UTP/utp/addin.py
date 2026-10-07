@@ -196,6 +196,12 @@ def _ask_switches(inputs):
         # as the explanation.
         inputs.addTextBoxCommandInput(
             "utp_damaged", "", config.SWITCHES_DAMAGED, 2, True)
+    elif settings.damaged["gone"]:
+        # Chosen on this machine before and not there now, which this add-in
+        # never does to itself. Same cure: saving from here writes both the
+        # file and the mark again.
+        inputs.addTextBoxCommandInput(
+            "utp_gone", "", config.SWITCHES_GONE, 4, True)
     boxes = {None: inputs}
     for key, title in settings.GROUPS:
         group = inputs.addGroupCommandInput("utp_" + key, title)

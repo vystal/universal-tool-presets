@@ -834,3 +834,57 @@ def test_a_value_the_document_copy_cannot_hold_does_not_say_pick_the_latest():
     assert "available" not in said, (
         "still telling somebody to pick a preset that cannot help: %s" % said)
     assert config.NOTE_UPDATE not in said
+
+
+def test_switches_that_vanish_after_being_chosen_do_not_come_back_on():
+    """OneDrive resolves a conflict by renaming, not by corrupting.
+
+    settings._read already refuses to guess when the file is there and cannot be
+    read, for the right reason: the person who switched something off is the
+    person it must stay off for. An absent file read as a fresh install, and a
+    fresh install has everything on -- including the two switches that write
+    outside somebody's own document, one of which deletes presets and one of
+    which writes to the shared shop library.
+
+    Documents is redirected into OneDrive on a lot of machines, and save()'s own
+    comment has said so all along. So a mark is kept where nothing syncs, and an
+    absent file means defaults only if nothing was ever chosen here.
+    """
+    scratch = tempfile.mkdtemp()
+    was_file, was_mark = config.SETTINGS_FILE, config.SETTINGS_CHOSEN
+    config.SETTINGS_FILE = os.path.join(scratch, "UTP switches.json")
+    config.SETTINGS_CHOSEN = os.path.join(scratch, "mark", "switches-chosen")
+    try:
+        # A fresh machine: no file, no mark. Defaults, which are everything on.
+        settings.forget()
+        assert settings.on("on") is True
+        assert settings.damaged["gone"] is False
+
+        # Somebody turns the two outward-facing ones off.
+        settings.save({"on": True, "open": True, "edit": True, "mark": True,
+                       "presets": True, "tidy": False, "stamp": False})
+        settings.forget()
+        assert settings.on("tidy") is False and settings.on("stamp") is False
+        assert os.path.exists(config.SETTINGS_CHOSEN), "no mark was left"
+
+        # A sync renames the file out from under it.
+        os.replace(config.SETTINGS_FILE,
+                   config.SETTINGS_FILE.replace(".json", "-DESKTOP-AB1.json"))
+        settings.forget()
+        settings.values()          # damaged is only set once the read happens
+        assert settings.damaged["gone"] is True, (
+            "a chosen file going missing was read as a fresh install")
+        for key, _l, _g, _s in settings.CONTROLS:
+            assert settings.on(key) is False, (
+                "%s came back on by itself; tidy deletes presets and stamp "
+                "writes to the shared library" % key)
+
+        # And saving from the Switches dialog is the cure.
+        settings.save({key: True for key, _l, _g, _s in settings.CONTROLS})
+        settings.forget()
+        settings.values()
+        assert settings.damaged["gone"] is False
+        assert settings.on("on") is True
+    finally:
+        config.SETTINGS_FILE, config.SETTINGS_CHOSEN = was_file, was_mark
+        settings.forget()

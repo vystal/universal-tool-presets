@@ -109,13 +109,43 @@ def on(key):
     return values().get(key, default(key))
 
 
-damaged = {"file": False}
+damaged = {"file": False, "gone": False}
+
+
+def _chosen_before():
+    """Whether somebody has ever saved switches on this machine."""
+    try:
+        return os.path.exists(config.SETTINGS_CHOSEN)
+    except Exception:
+        return False
+
+
+def _remember_chosen():
+    """Leave the mark, where nothing syncs. Never fatal: it is a safety net."""
+    try:
+        os.makedirs(os.path.dirname(config.SETTINGS_CHOSEN), exist_ok=True)
+        with open(config.SETTINGS_CHOSEN, "w", encoding="utf-8") as handle:
+            handle.write("switches have been chosen on this machine\n")
+    except Exception:
+        pass
 
 
 def _read():
     held = {key: default(key) for key, _l, _g, _s in CONTROLS}
     damaged["file"] = False
+    damaged["gone"] = False
     if not os.path.exists(config.SETTINGS_FILE):
+        if _chosen_before():
+            # Somebody chose switches on this machine and the file is not there
+            # now. It was not this add-in that removed it -- save() only ever
+            # replaces it -- so something outside did, and the likeliest thing
+            # is a cloud sync resolving a conflict by renaming. Treated exactly
+            # as an unreadable file is, for the same reason: the person who
+            # switched something off is the person it must stay off for, and a
+            # fresh install turns on the two switches that write outside their
+            # own document.
+            damaged["gone"] = True
+            return {key: False for key, _l, _g, _s in CONTROLS}
         # Nobody has chosen anything yet. The defaults are what a fresh
         # install does, which is everything on.
         return held
@@ -176,6 +206,7 @@ def save(new):
         with os.fdopen(handle, "w", encoding="utf-8") as out:
             json.dump(held, out, indent=2, sort_keys=True)
         os.replace(temporary, config.SETTINGS_FILE)
+        _remember_chosen()
     except Exception:
         try:
             os.unlink(temporary)

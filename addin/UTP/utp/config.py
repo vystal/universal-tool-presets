@@ -344,6 +344,24 @@ REPORT_DIR = os.path.join(
 # can have this one file copied onto the next one.
 SETTINGS_FILE = os.path.join(REPORT_DIR, "UTP switches.json")
 
+# A mark saying somebody has chosen switches on this machine, kept where nothing
+# syncs: LOCALAPPDATA, beside the loader's cache rather than inside it, since the
+# loader replaces that wholesale.
+#
+# Because the file above can go missing without being corrupt. OneDrive resolves
+# a conflict by RENAMING, not by damaging, and Documents is redirected into
+# OneDrive on a lot of machines. _read refuses to guess when the file is present
+# and unreadable -- the direction that matters, since the person who switched
+# this off is the person it must stay off for -- but an absent file read as a
+# fresh install, and a fresh install has everything on, including the two
+# switches that write outside the person's own document.
+#
+# With this, absent-and-never-chosen still means defaults, and absent-after-being
+# -chosen means something took it and nothing happens until somebody says so.
+SETTINGS_CHOSEN = os.path.join(
+    os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+    "UTP", "switches-chosen")
+
 # ---------------------------------------------------------------------------
 # What a note says
 # ---------------------------------------------------------------------------
@@ -646,6 +664,13 @@ SWITCHES_SAVED = "Switches saved.\n\n%s"
 SWITCHES_UNCHANGED = "Nothing changed."
 SWITCHES_FOOTER = ("These are for this machine, not for the document. They "
                    "stay set until you change them.")
+SWITCHES_GONE = ("Your saved switches have gone missing, so nothing is "
+                 "happening on its own until you set them again.\n\nThis "
+                 "machine has chosen switches before, and the file is not "
+                 "there now. The usual reason is a cloud sync renaming it: "
+                 "the folder lives under Documents, which OneDrive often "
+                 "takes over.\n\nPress Switches, set them how you want them, "
+                 "and save. That puts it back.")
 SWITCHES_DAMAGED = ("The saved switches could not be read, so everything "
                     "is off. Set them how you want them and press OK.")
 
