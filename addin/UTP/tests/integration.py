@@ -678,11 +678,13 @@ def _no_churn(bench):
     seen = {}
     for operation in bench.operations():
         verdict = state.reconcile(operation, tools, seen)
-        if verdict.get("libraryPresetId") and verdict["state"] == state.CURRENT:
+        if verdict.get("libraryPresetId") and verdict["state"] in (
+                state.CURRENT, state.BEHIND):
             target = verdict
             break
     if target is None:
-        return "SKIP", "no operation sits on a readable library preset"
+        return "SKIP", ("no operation resolves to a library preset, so there "
+                        "is nothing whose values can be moved")
 
     libraries = adsk.cam.CAMManager.get().libraryManager.toolLibraries
     url = None
@@ -705,10 +707,17 @@ def _no_churn(bench):
                     found = preset.parameters.itemByName("tool_feedCutting")
                     if found is None:
                         return None
-                    was = found.value.value
-                    found.value.value = was + by
+                    # Every value, not just this one. Fusion recomputes the
+                    # linked feeds from whichever one is set, so moving
+                    # tool_feedCutting moves five -- feedEntry, feedExit,
+                    # feedPerTooth and feedTransition came with it, measured.
+                    # Putting one back left four moved, which left the bench
+                    # permanently behind and made the NEXT run of this check
+                    # skip itself: a test degrading its own precondition.
+                    held = values.scalars(preset)
+                    found.value.value = found.value.value + by
                     libraries.updateToolLibrary(url, shelf)
-                    return was
+                    return held
         return None
 
     def dropdown():
@@ -719,8 +728,8 @@ def _no_churn(bench):
                     counted += 1
         return counted
 
-    was = nudge(77.0)
-    if was is None:
+    held = nudge(77.0)
+    if held is None:
         return "SKIP", "that preset has no feed to move"
     try:
         library.forget()
@@ -735,10 +744,17 @@ def _no_churn(bench):
         for i in range(shelf.count):
             tool = shelf.item(i)
             for j in range(tool.presets.count):
-                if tool.presets.item(j).id == target["libraryPresetId"]:
-                    tool.presets.item(j).parameters.itemByName(
-                        "tool_feedCutting").value.value = was
-                    libraries.updateToolLibrary(url, shelf)
+                preset = tool.presets.item(j)
+                if preset.id != target["libraryPresetId"]:
+                    continue
+                for name, value in held.items():
+                    try:
+                        param = preset.parameters.itemByName(name)
+                        if param is not None:
+                            param.value.value = value
+                    except Exception:
+                        continue
+                libraries.updateToolLibrary(url, shelf)
         library.forget()
     if after_three > after_one:
         return "FAIL", ("(latest) copies grew from %d to %d across three "
