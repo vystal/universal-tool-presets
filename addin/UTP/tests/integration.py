@@ -925,25 +925,28 @@ def _whole_and_kept(bench):
                     % len(first))
 
 
-@check("a library preset that moved mid-pass is not written over")
+@check("a library that moved mid-pass is not written over")
 def _race_guard(bench):
     """The two-writer race, which is real and destroys work.
 
-    Measured 7 October on the TEST library, one process holding two snapshots
-    -- which is exactly what two machines are. A session set a feed from 1750
-    to 1751 and a fresh read confirmed it. The add-in then stamped a version
-    using a shelf opened before that change, and the feed read 1750 again:
-    updateToolLibrary puts back the WHOLE library from the shelf it is given,
-    so the one change this add-in exists to propagate was reverted by this
-    add-in, silently and with no undo.
+    Measured 7 October on the TEST library, one process holding two snapshots --
+    which is exactly what two machines are. A session set a feed from 1750 to
+    1751 and a fresh read confirmed it. The add-in then stamped a version using a
+    shelf opened before that change, and the feed read 1750 again:
+    updateToolLibrary puts back the WHOLE library from the shelf it is given, so
+    the one change this add-in exists to propagate was reverted by this add-in,
+    silently and with no undo.
 
-    Deciding and writing are two passes now, and the second checks each target
-    against what the first decided. Simulated here by handing the decision a
-    snapshot that does not match the preset -- the same thing a change arriving
-    in between looks like -- and requiring that nothing is written and that it
-    is reported rather than swallowed.
+    So versions.review snapshots every preset in the library, walks it, re-opens
+    it, and writes only if nothing at all moved in between -- every preset, not
+    only the ones being stamped, because the write puts all of them back.
+
+    Simulated by making the second reading of the library differ from the first,
+    which is what somebody else's change looks like from in here. The flip is
+    triggered from needed(), which runs after the first reading is taken and
+    before the second.
     """
-    from utp import versions
+    from utp import values, versions
 
     libraries = adsk.cam.CAMManager.get().libraryManager.toolLibraries
     tools = bench.tools()
@@ -958,24 +961,38 @@ def _race_guard(bench):
     if target is None:
         return "SKIP", "no library preset with values to work with"
 
-    was = versions.needed
+    was_needed, was_scalars = versions.needed, values.scalars
+    moved = {"yet": False}
     report = Quiet()
+
+    def scalars(owner):
+        held = was_scalars(owner)
+        if moved["yet"] and held:
+            # One value different, as a feed change in between would be. A
+            # float, found by looking: the first key alphabetically is usually
+            # tool_coolant, which is a string, so perturbing that one changed
+            # nothing and the check passed itself for the wrong reason.
+            for name in sorted(held):
+                if isinstance(held[name], float) and not isinstance(held[name], bool):
+                    return dict(held, **{name: held[name] + 1.0})
+        return held
+
+    def needed(preset):
+        moved["yet"] = True        # from here on, the library reads differently
+        return 99, was_scalars(preset), "test: needs a stamp"
+
     try:
-        # "This needs stamping, and when you decided, it held these values."
-        # The values are deliberately not what it holds, which is what somebody
-        # else's change looks like to the second pass.
-        versions.needed = lambda preset: (
-            99, dict(target.values, tool_feedCutting=-1.0), "test: moved")
+        versions.needed, values.scalars = needed, scalars
         versions.review(libraries, [target], report, True)
     finally:
-        versions.needed = was
+        versions.needed, values.scalars = was_needed, was_scalars
 
     if report.failures < 1:
         return "FAIL", ("a library that moved between deciding and writing was "
                         "written anyway; putting it back from the older shelf "
                         "reverts whatever somebody else changed")
 
-    # And the bogus version must not have landed.
+    # And the refused stamp must not have landed.
     library.forget()
     fresh = library.cached(Quiet(), None)[0]
     tool = fresh.get(target.tool_id)
@@ -983,7 +1000,7 @@ def _race_guard(bench):
         again = tool.presets.get(target.id)
         if again is not None and again.version == "99":
             return "FAIL", "the refused stamp was written to the shop library"
-    return "PASS", ("a target that moved between deciding and writing was "
+    return "PASS", ("a library that changed between deciding and writing was "
                     "refused and reported (%d failure(s))" % report.failures)
 
 
