@@ -180,8 +180,17 @@ def _was_icon(owner):
     return None
 
 
-# Operations whose own line this add-in took off, as opposed to a person
-# deleting it. Keyed by the operation's id, emptied as soon as it is used.
+# The ONE operation whose own line this add-in took off most recently, as
+# opposed to a person deleting it.
+#
+# One slot, not a set, for two reasons. operationId is a small per-document
+# integer -- measured, the bench's are 4 and up -- so two open documents share
+# ids and a set would let a removal in one suppress the guard in the other. And
+# a whole-document pass removes many lines, which would fill a set with every
+# operation in the job and stand the guard down for all of them, so a person
+# could not clear any of those notes. The case this exists for is strictly "the
+# add-in took this line off a moment ago, in the dialog somebody has open", and
+# one slot is exactly that.
 #
 # Needed because the two look identical from the outside, and getting them
 # confused cost the note entirely. Reported 7 October: create an operation, pick
@@ -191,7 +200,7 @@ def _was_icon(owner):
 # never comes back, not even on OK, because "marked before, and no line there
 # now" is exactly what a person clearing it looks like. That is the flakiness
 # people were seeing: the note would go and stay gone for the rest of the visit.
-_we_cleared = set()
+_last_cleared = {"id": None}
 
 
 def _id_of(owner):
@@ -283,7 +292,7 @@ def plan(operation, verdict, during_their_edit=False):
 
     if (during_their_edit and line and _marked_before(operation)
             and not _ours_in(existing)
-            and _id_of(operation) not in _we_cleared):
+            and _last_cleared["id"] != _id_of(operation)):
         # They have just cleared our line, and clearing a note raises the
         # same event as any other edit, so putting it straight back meant it
         # could not be deleted at all. Left alone for now.
@@ -499,13 +508,13 @@ def _apply(operation, changes):
         found = _id_of(operation)
         if found is not None:
             if _ours_in(note.get("from")) and not _ours_in(note.get("to")):
-                _we_cleared.add(found)
-            elif _ours_in(note.get("to")):
+                _last_cleared["id"] = found
+            elif _ours_in(note.get("to")) and _last_cleared["id"] == found:
                 # Our line is back on, so whatever happens to it next is
                 # somebody else's doing. Forgotten here rather than when the
                 # guard reads it: left set, a person could never clear that
                 # operation's note again, which is the feature this protects.
-                _we_cleared.discard(found)
+                _last_cleared["id"] = None
 
         mark = time.time()
         operation.notes = changes["note"]["to"]

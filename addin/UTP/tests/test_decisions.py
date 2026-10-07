@@ -719,7 +719,7 @@ def test_the_add_in_taking_its_own_note_off_is_not_somebody_clearing_it():
     Both halves are pinned here: the sequence must end with the note back, and
     a person clearing it must still be left alone.
     """
-    marks._we_cleared.clear()
+    marks._last_cleared["id"] = None
 
     owner = Owner("", None, "Gray")
     steps = []
@@ -746,3 +746,39 @@ def test_the_add_in_taking_its_own_note_off_is_not_somebody_clearing_it():
     # and a check or an open works it out again
     after = marks.plan(owner, verdict(state.CURRENT, record="P Titanium"))
     assert "note" in after, "a check no longer restores a cleared note"
+
+
+def test_a_whole_document_pass_does_not_stand_the_cleared_note_guard_down():
+    """The memory of "we took this line off" is one slot, and must stay one.
+
+    operationId is a small per-document integer, so two open documents share
+    ids. And a pass removes many lines at once: held as a set, every operation
+    in the job would be remembered as "we cleared it", and a person could then
+    not delete any of those notes because the guard would never fire again.
+
+    So a pass over several operations must leave at most the last one
+    remembered, and clearing a note the add-in did NOT just remove must still be
+    respected.
+    """
+    marks._last_cleared["id"] = None
+
+    class Numbered(Owner):
+        def __init__(self, number, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.operationId = number
+
+    # Three operations lose their line in one pass, as Remove all notes does.
+    for number in (1, 2, 3):
+        owner = Numbered(number, marks.ours("P Titanium v6"), ADOPTED, "Green")
+        marks.apply(owner, {"note": {"from": owner.notes, "to": ""}})
+    assert marks._last_cleared["id"] == 3, (
+        "the memory is not one slot any more: %r" % (marks._last_cleared,))
+
+    # Operation 1 was cleared by the pass, not by a person -- but that was two
+    # operations ago, so a person clearing ITS note now must be respected.
+    first = Numbered(1, "", ADOPTED, "Gray")
+    plan = marks.plan(first, verdict(state.CURRENT, record="P Titanium"),
+                      during_their_edit=True)
+    assert plan == {}, (
+        "a pass's own removals are suppressing the guard for operations it is "
+        "no longer about, so those notes cannot be deleted: %s" % plan)
