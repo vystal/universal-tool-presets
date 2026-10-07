@@ -503,13 +503,15 @@ LATEST_SUFFIX = "(latest)"
 
 # What a copy is called once something newer exists. The date matters: the
 # preset the tool arrived with already holds the plain name, so dropping the
-# suffix alone leaves two identical entries in the dropdown.
-RETIRED_SUFFIX = "(until %s)"
-RETIRED_FORMAT = "%d %b %Y"
-
-# Used only when two copies retire on the same day, which happens if somebody
-# adjusts a UTP twice while a job is running.
-RETIRED_FORMAT_EXACT = "%d %b %Y %H:%M"
+# What a retired copy is called when it carries no version number. Never a date:
+# "P Copper (until 08 Oct 2026)" answers a question nobody asked, in a dropdown
+# where every other entry is named by its version or by what it is. Decided in
+# the shop on 8 October -- version numbers, (latest), Custom, nothing else.
+#
+# A copy that HAS a version keeps it and needs none of this: "P Titanium v2"
+# beside "P Titanium v3 (latest)" says at a glance how far behind you are.
+PREVIOUS_SUFFIX = "(previous)"
+PREVIOUS_NUMBERED = "(previous %d)"
 
 
 ICON_FOR_STATE = {

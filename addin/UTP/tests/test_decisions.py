@@ -946,38 +946,45 @@ def test_nothing_says_the_latest_suffix_alone_identifies_the_preset():
             "tool with two UTPs has two of them")
 
 
-def test_a_copy_with_neither_suffix_is_noticed():
-    """Every copy the add-in makes ends "(latest)" and every one it retires ends
-    "(until <date>)". One of its own with neither is a name no path here
-    produces, and it matters twice: it sits in the dropdown looking hand-made,
-    and removable ranks candidates by the version in their name, so a suffixless
-    copy carrying v23 outranks a properly retired one carrying none -- the tidy
-    would keep the anomaly and delete the copy whose date says what an operation
-    used to run.
+def test_a_retired_copy_is_named_by_its_version_and_never_by_a_date():
+    """Decided in the shop on 8 October: version numbers, (latest), Custom.
 
-    Found on the bench 8 October: "P Copper v23", made by the add-in, no suffix,
-    beside "P Copper (until 07 Oct 2026 12:55)".
+    A dropdown entry reading "P Copper (until 08 Oct 2026)" answers a question
+    nobody asked, beside entries named by what they are. The version form was
+    already the intended one -- "P Titanium v2" beside "P Titanium v3 (latest)"
+    says at a glance how far behind an operation is -- and the date was only
+    ever the fallback for a copy carrying no version. That fallback is now
+    "(previous)".
+
+    Worth saying what this corrects. A copy named "P Copper v23", with a version
+    and no suffix, is the NORMAL retired form. Yesterday I read it as a
+    malformed name and made the tidy stand down on any tool holding one, which
+    guaranteed that retired copies would pile up for ever -- the accumulation
+    that was reported. That check is gone.
     """
-    def copy(name, held=True):
-        return FakePreset(name, held={config.KEY_SOURCE_PRESET: "lib-1"}
-                          if held else {})
+    taken = ["P Copper", "P Copper v3 (latest)"]
 
-    tool = FakeTool([
-        copy("P Copper v3 (latest)"),
-        copy("P Copper (until 07 Oct 2026 12:55)"),
-        copy("P Copper v23"),                       # the anomaly
-        copy("P Copper", held=False),               # the tool's own, not ours
-    ])
-    found = presets.oddly_named(tool)
-    assert found == ["P Copper v23"], found
+    # With a version: the version is the name, and that is all.
+    assert presets.retired_name("P Copper v2 (latest)", taken,
+                                version="2") == "P Copper v2"
 
-    # And a tool whose copies are all properly named says nothing.
-    tidy = FakeTool([copy("P Copper v3 (latest)"),
-                     copy("P Copper (until 07 Oct 2026)"),
-                     copy("P Copper", held=False)])
-    assert presets.oddly_named(tidy) == []
+    # Without one: a plain marker, never a date.
+    plain = presets.retired_name("P Copper (latest)", taken)
+    assert plain == "P Copper %s" % config.PREVIOUS_SUFFIX, plain
+    assert "until" not in plain.lower()
 
+    # Several of those, numbered rather than dated.
+    more = presets.retired_name("P Copper (latest)", taken + [plain])
+    assert more == "P Copper %s" % (config.PREVIOUS_NUMBERED % 2), more
+    assert "until" not in more.lower()
 
+    # And nothing anywhere can produce a dated name any more.
+    for name in ("RETIRED_SUFFIX", "RETIRED_FORMAT", "RETIRED_FORMAT_EXACT"):
+        assert not hasattr(config, name), "%s is back" % name
+    assert not hasattr(presets, "_dated_name")
+    assert not hasattr(presets, "oddly_named"), (
+        "the check that made the tidy refuse to clear normal retired copies "
+        "is back")
 def test_a_note_only_names_a_version_that_is_genuinely_ahead():
     """Two reports from real use, a day apart.
 

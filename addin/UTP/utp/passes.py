@@ -316,16 +316,19 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing, tidying=True):
                         reason=("what operations point at is only known in "
                                 "full after a whole pass"))
             continue
-        odd = presets.oddly_named(tool)
-        if odd:
-            report.failed(
-                "a copy this add-in made has neither suffix: %s. Nothing here "
-                "produces that name, so a rename stopped half way or something "
-                "outside renamed it. Not removing anything from this tool until "
-                "somebody has looked, because the tidy ranks candidates by the "
-                "version in their name and would keep this one over a properly "
-                "retired copy" % ", ".join(odd))
-            continue
+        for preset, wanted in presets.dated_names(tool):
+            was = preset.name
+            if not writing:
+                report.note("would rename %s to %s" % (was, wanted))
+                continue
+            try:
+                preset.name = wanted
+                wrote = True
+                report.note("renamed %s to %s" % (was, wanted),
+                            why="retired copies are named by their version now, "
+                                "never by a date")
+            except Exception:
+                report.failed("could not rename %s" % was)
         spare = presets.removable(tool, library_tool, used_ids)
         if not spare:
             continue

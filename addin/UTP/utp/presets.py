@@ -31,37 +31,39 @@ def retired_name(name, taken=(), when=None, version=None):
 
     Its version if it has one, because "P Titanium v2" beside
     "P Titanium v3 (latest)" says at a glance how far behind an operation is.
-    The date form below is the fallback for libraries with no version numbers
-    yet, and reads far worse for exactly that reason.
+    Only when it has none does it fall back to "(previous)": never a date.
     """
     if version:
         numbered = config.VERSION_LABEL % (without_suffix(name), version)
         if numbered not in set(taken):
             return numbered
-    return _dated_name(name, taken, when)
+    return _plain_name(name, taken)
 
 
-def _dated_name(name, taken=(), when=None):
-    """What a copy is called once something newer exists.
+def _plain_name(name, taken=()):
+    """What a retired copy is called when it carries no version number.
 
-    Not the bare name: the preset the tool arrived with is already called
-    that, so simply dropping the suffix leaves two identical entries in the
-    dropdown and nobody can tell which is which. The date it stopped being
-    current is both a distinguisher and something worth knowing, since it
-    says how old the feeds an operation is running actually are.
+    Never a date. Dates were the fallback here and they should not have been:
+    "P Copper (until 08 Oct 2026)" tells somebody when a preset stopped being
+    current, which nobody asked about, in a dropdown where every other entry is
+    named by its version or by what it is. Decided in the shop on 8 October --
+    version numbers, (latest), Custom, nothing else.
 
-    A UTP changed twice in one day gives two copies the same date, so the
-    time is added when, and only when, the date alone is already taken. That
-    keeps the ordinary case readable and the awkward one unambiguous.
+    Not the bare name either: the preset the tool arrived with already holds
+    that, so dropping the suffix leaves two identical entries and nobody can
+    tell which is which.
     """
-    when = when or datetime.datetime.now()
     base = without_suffix(name)
-    dated = "%s %s" % (base, config.RETIRED_SUFFIX
-                       % when.strftime(config.RETIRED_FORMAT))
-    if dated not in set(taken):
-        return dated
-    return "%s %s" % (base, config.RETIRED_SUFFIX
-                      % when.strftime(config.RETIRED_FORMAT_EXACT))
+    plain = "%s %s" % (base, config.PREVIOUS_SUFFIX)
+    if plain not in set(taken):
+        return plain
+    # Several with no version at all between them. Numbered by how many there
+    # are, which is the only ordering available when none of them says which
+    # version it held.
+    count = 2
+    while "%s %s" % (base, config.PREVIOUS_NUMBERED % count) in set(taken):
+        count += 1
+    return "%s %s" % (base, config.PREVIOUS_NUMBERED % count)
 
 
 def without_suffix(name):
@@ -181,37 +183,33 @@ def missing(tool, library_tool):
             if not represented(tool, preset.id)]
 
 
-def oddly_named(tool):
-    """Copies the add-in made that carry neither suffix. Names only.
+def dated_names(tool):
+    """Copies of ours still carrying the old dated name. [(preset, wanted)].
 
-    Every copy it makes is called "<name> v<N> (latest)" and every one it
-    retires becomes "<name> (until <date>)", so a copy of its own with neither
-    is a name that no path here produces -- a rename that stopped half way, or
-    something outside renaming it.
-
-    Worth saying rather than fixing, for two reasons. It sits in the dropdown
-    looking like a preset somebody made by hand, so nobody can tell it is the
-    add-in's. And removable sorts candidates by the version in their name, so a
-    suffixless copy carrying v23 outranks a properly retired one carrying none
-    -- the tidy would keep the anomaly and delete the copy whose date says what
-    an operation used to run. Found on the bench 8 October: "P Copper v23",
-    made by the add-in, no suffix, beside "P Copper (until 07 Oct 2026 12:55)".
+    Renaming them is safe and is why it is worth doing: an operation points at a
+    preset by its id, never by its name, so putting the name right changes
+    nothing about what anything is running. Dropping the old names and leaving
+    them in every document that already had them would mean the dropdown kept
+    showing dates for ever on exactly the jobs people are working in.
     """
-    odd = []
+    found = []
     try:
+        taken = _names(tool)
         for index in range(tool.presets.count):
             preset = tool.presets.item(index)
             if source_of(preset) is None:
                 continue
             name = preset.name or ""
-            if name.endswith(config.LATEST_SUFFIX):
+            if "(until " not in name:
                 continue
-            if config.RETIRED_SUFFIX % "" in name or "(until " in name:
-                continue
-            odd.append(name)
+            wanted = retired_name(name, [n for n in taken if n != name],
+                                  version=version_of(preset))
+            if wanted != name:
+                found.append((preset, wanted))
+                taken.append(wanted)
     except Exception:
-        return odd
-    return odd
+        return found
+    return found
 
 
 def removable(tool, library_tool, used_ids):
