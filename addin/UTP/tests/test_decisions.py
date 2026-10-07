@@ -956,28 +956,41 @@ def test_a_copy_with_neither_suffix_is_noticed():
     assert presets.oddly_named(tidy) == []
 
 
-def test_a_note_never_offers_the_version_the_operation_already_has():
-    """Reported from real use on 8 October: "UTP P Copper v1 - v1 available",
-    orange, telling somebody to update to the version they already had.
+def test_a_note_only_names_a_version_that_is_genuinely_ahead():
+    """Two reports from real use, a day apart.
 
-    The pass that moves a version re-read the libraries and did NOT recompute
-    the verdicts unless a preset had also moved, so the notes it wrote named the
-    version from before the bump. That ordering is fixed in passes.run; this is
-    the net under it, because the two can come out equal for other reasons -- a
-    stamp that was refused, a copy carrying a number the library has since
-    reused -- and none of them should produce an instruction to install what you
-    are already running.
+    "UTP P Copper v1 - v1 available" -- update to the version you have. And then
+    "UTP P Copper v3 - v1 available" -- update backwards.
 
-    The operation IS behind, by values, so the note still says so. It just stops
-    claiming to know which version would fix it.
+    A version only means anything within one preset's own line of descent. A
+    copy's number describes the library preset it was taken from, so the moment
+    an operation resolves to a DIFFERENT library preset -- a tool removed,
+    renamed, re-imported, or one of several carrying the same description -- the
+    two numbers come from separate sequences and comparing them is meaningless.
+    The second report came minutes after ten tools were deleted from a library.
+
+    They also arrive as text, read by two different functions, so they must not
+    be compared as strings: "10" is less than "9" that way.
     """
-    same = marks.note_line(verdict(state.BEHIND, documentVersion=1,
-                                   libraryVersion=1))
-    assert "v1 available" not in same, same
-    assert config.NOTE_UPDATE in same, (
-        "a behind operation must still say an update is available: %r" % same)
+    def note(document_version, library_version):
+        return marks.note_line(verdict(state.BEHIND,
+                                       documentVersion=document_version,
+                                       libraryVersion=library_version))
 
-    # And when they really do differ, the number is still named.
-    moved = marks.note_line(verdict(state.BEHIND, documentVersion=1,
-                                    libraryVersion=2))
-    assert "v2 available" in moved, moved
+    # Neither reported case may name a version.
+    for held, offered in (("1", "1"), ("3", "1")):
+        said = note(held, offered)
+        assert "v%s available" % offered not in said, said
+        assert config.NOTE_UPDATE in said, (
+            "a behind operation must still say an update is available: %r" % said)
+
+    # A genuine step forward is still named, and compared as a number.
+    assert "v2 available" in note("1", "2")
+    assert "v10 available" in note("9", "10"), (
+        "compared as text, so ten reads as older than nine")
+
+    # Nothing recorded locally: naming the library's is all there is to say.
+    assert "v4 available" in note(None, "4")
+
+    # A library version that will not read as a number is not guessed at.
+    assert config.NOTE_UPDATE in note("1", "not a number")

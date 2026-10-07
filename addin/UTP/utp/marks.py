@@ -59,14 +59,29 @@ def note_line(verdict):
                                       config.NOTE_SEPARATOR,
                                       config.NOTE_COPY_CANNOT_HOLD))
         newer = verdict.get("libraryVersion")
-        if newer is not None and newer == verdict.get("documentVersion"):
-            # Never "v1 - v1 available". Whatever got the two the same -- a
-            # version named before a bump landed, a stamp that was refused, a
-            # copy carrying a number the library has since reused -- naming it
-            # tells somebody to update to what they already have, in orange.
-            # The operation IS behind, by values, so the note still says so;
-            # it just stops pretending to know which version would fix it.
-            newer = None
+        if newer is not None:
+            # Only ever named when it is a number, and strictly higher than the
+            # one the operation already holds.
+            #
+            # Two reports from real use, a day apart: "v1 - v1 available", and
+            # then "v3 - v1 available" -- update to the version you have, and
+            # update backwards. A version only means anything within one
+            # preset's own line of descent: a copy's number describes the
+            # library preset it was taken from, so the moment an operation
+            # resolves to a DIFFERENT library preset -- a tool removed, renamed,
+            # re-imported, or one of several carrying the same description --
+            # the two numbers come from separate sequences and comparing them
+            # is meaningless. Measured 8 October, after ten tools were deleted
+            # from a library: a copy stamped v3 beside a library preset at v1.
+            #
+            # So the number is offered only when it can be read as a number and
+            # is genuinely ahead. The operation IS behind, by values, so the
+            # note still says an update is available; it stops claiming to know
+            # which version would fix it.
+            ahead = _as_number(newer)
+            holding = _as_number(verdict.get("documentVersion"))
+            if holding is not None and (ahead is None or ahead <= holding):
+                newer = None
         # "v2 - v3 available" when both are known. When the document's own
         # version is not, saying which version is newer is still worth more
         # than saying nothing, so only the second half is dropped.
@@ -225,6 +240,19 @@ _last_cleared = {"id": None}
 def _id_of(owner):
     try:
         return owner.operationId
+    except Exception:
+        return None
+
+
+def _as_number(value):
+    """A version as a number, or None if it will not read as one.
+
+    Versions reach here as whatever was written into the attribute, which is
+    text, and the two sides are read by different functions -- so they arrive as
+    strings and must not be compared as strings. "10" is less than "9" that way.
+    """
+    try:
+        return int(str(value).strip())
     except Exception:
         return None
 
