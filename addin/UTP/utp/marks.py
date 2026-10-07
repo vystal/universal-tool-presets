@@ -47,6 +47,17 @@ def note_line(verdict):
                                  config.NOTE_SETS_THE_CUT)
         return ours(said)
     if kind == state.BEHIND:
+        if verdict.get("copyCannotHold"):
+            # Behind in a way nobody can fix from the dropdown: the shop preset
+            # holds a value that never went into this document's copy of the
+            # tool, so picking the newer preset brings in a copy that lacks it
+            # too. Saying "update available" here sends somebody to a dropdown
+            # that cannot help, and a yellow note that cannot be acted on is how
+            # people learn to stop reading yellow ones.
+            return ours("%s %s %s" % (_named(verdict,
+                                             verdict.get("documentVersion")),
+                                      config.NOTE_SEPARATOR,
+                                      config.NOTE_COPY_CANNOT_HOLD))
         newer = verdict.get("libraryVersion")
         # "v2 - v3 available" when both are known. When the document's own
         # version is not, saying which version is newer is still worth more

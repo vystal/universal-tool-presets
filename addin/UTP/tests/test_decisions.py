@@ -782,3 +782,55 @@ def test_a_whole_document_pass_does_not_stand_the_cleared_note_guard_down():
     assert plan == {}, (
         "a pass's own removals are suppressing the guard for operations it is "
         "no longer about, so those notes cannot be deleted: %s" % plan)
+
+
+def test_moving_to_another_shop_preset_and_tuning_it_stays_grey():
+    """The commonest thing to do in one visit to the dialog.
+
+    Pick the newer preset AND adjust a feed before pressing OK. The record names
+    the preset the operation used to be on, so state._record withholds itself --
+    correctly, it no longer describes where these values came from. But the FACT
+    that somebody put this operation on a shop preset is still true, and losing
+    it with the name dropped the verdict to "never set from a UTP", which writes
+    no note. The operation left the system silently, and only an exact match
+    would ever have brought it back.
+    """
+    # A record naming a DIFFERENT preset from the one the operation is on now.
+    moved = dict(ADOPTED)
+    moved[config.KEY_ADOPTED_PRESET] = "some-older-preset"
+    owner = Owner(marks.ours("P Copper v2"), moved, "Green")
+
+    assert state._record(owner, "p1") is None, (
+        "a record naming another preset should not be trusted to describe this "
+        "one")
+    assert state._was_adopted(owner) is True, (
+        "the fact that it was put on a shop preset is still true")
+
+    # And the verdict that follows must be Custom, which marks, not
+    # "not adopted", which does not.
+    said = marks.note_line(verdict(state.CUSTOM, record=None))
+    assert said and config.NOTE_CUSTOM in said
+    nothing = marks.note_line(verdict(state.NOT_ADOPTED))
+    assert nothing is None, "not adopted should still say nothing"
+
+
+def test_a_value_the_document_copy_cannot_hold_does_not_say_pick_the_latest():
+    """Yellow has to be actionable or it stops being read.
+
+    Two situations look identical to the name-set check: the library gained a
+    value since this copy was made, where picking the newer preset brings it in;
+    and the value was always there and never went into the copy, where picking
+    makes another copy that lacks it too and presets.plan rightly refuses. The
+    first is "update available". The second has to say something else.
+    """
+    gained = verdict(state.BEHIND, libraryVersion=3, documentVersion=2)
+    assert "available" in marks.note_line(gained), (
+        "a preset that gained a value should still send somebody to the dropdown")
+
+    cannot = verdict(state.BEHIND, libraryVersion=3, documentVersion=2,
+                     copyCannotHold=["tool_stepdown"])
+    said = marks.note_line(cannot)
+    assert config.NOTE_COPY_CANNOT_HOLD in said, said
+    assert "available" not in said, (
+        "still telling somebody to pick a preset that cannot help: %s" % said)
+    assert config.NOTE_UPDATE not in said

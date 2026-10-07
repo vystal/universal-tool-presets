@@ -411,6 +411,16 @@ NOTE_CUSTOM = "Custom"
 # says only that there is something newer. Less informative, never wrong.
 NOTE_UPDATE = "update available"
 
+# For a behind operation nobody can fix from the dropdown. The shop preset holds
+# a value that never went into this document's copy of the tool -- presets.apply
+# records those, and presets.plan then rightly refuses to make another copy that
+# would lack it too. So picking the newer preset changes nothing.
+#
+# Short on purpose: it reaches the NC as a comment, like every other note. The
+# report names the parameters; the note only has to stop somebody hunting
+# through a dropdown that cannot help them.
+NOTE_COPY_CANNOT_HOLD = "this document's tool cannot take it"
+
 # Values a preset can carry that change the shape of the cut rather than the
 # rate of it. Measured, not guessed: of 441 presets across the eight Hub
 # libraries, three carry tool_stepdown and tool_stepover, and tool_rampAngle is

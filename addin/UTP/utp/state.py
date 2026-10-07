@@ -98,6 +98,7 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
                           "a preset the shop made")
         return verdict
     verdict["record"] = _record(operation, preset.id)
+    verdict["adopted before"] = _was_adopted(operation)
 
     # Looked up here rather than further down, so it is known for every
     # operation and not only the ones that reach the comparison. Whether a
@@ -178,6 +179,18 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
             verdict["state"] = CUSTOM
             verdict["why"] = "was set from %s; %d values now differ, e.g. %s" % (
                 verdict["record"], len(edited), _sample(verdict["changed"]))
+        elif verdict["adopted before"]:
+            # On a shop preset, with a record saying somebody put it on one --
+            # just not this one. So it was moved and then changed, and grey
+            # Custom is what that is. Saying "never set from a UTP" here took
+            # the note off an operation somebody had deliberately adopted and
+            # then tuned, which is the commonest thing to do in one visit to
+            # the dialog.
+            verdict["state"] = CUSTOM
+            verdict["why"] = ("was put on a shop preset, then moved to %s and "
+                              "changed; %d values differ, e.g. %s"
+                              % (verdict["preset"], len(edited),
+                                 _sample(verdict["changed"])))
         else:
             # Never put on a UTP at all. Nearly every operation in a file that
             # predates the system lands here: measured on a real document, 20
@@ -256,10 +269,31 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
                  or name in config.CUT_DEPTH_PARAMETERS]
         if shape:
             verdict["changesTheCut"] = shape
+        # Two very different situations wear the same shape here, and they need
+        # different things said. If the library has GAINED a value since this
+        # copy was made, picking the newer preset brings it in and "update
+        # available" is the right instruction. If the value was there all along
+        # and never went into the copy -- presets.apply records exactly that,
+        # and presets.plan then rightly refuses to make another copy that would
+        # also lack it -- then picking changes nothing, and telling somebody to
+        # pick is worse than saying nothing. Un-actionable yellow is how yellow
+        # stops being read.
+        #
+        # The copy's own snapshot of what the library held when it was made is
+        # what tells them apart.
+        stood = presets.stood_for(preset)
+        if short and stood is not None:
+            never_took = sorted(name for name in short if name in stood)
+            if never_took:
+                verdict["copyCannotHold"] = never_took
         verdict["why"] = (
-            "the library preset holds %d value(s) this one does not%s"
+            "the library preset holds %d value(s) this one does not%s%s"
             % (len(short),
-               " and lacks %d it does" % len(extra) if extra else "")
+               " and lacks %d it does" % len(extra) if extra else "",
+               "; %s never went into this document's copy and picking the "
+               "preset will not change that"
+               % ", ".join(verdict["copyCannotHold"])
+               if verdict.get("copyCannotHold") else "")
             if short else
             "this one holds %d value(s) the library preset does not" % len(extra))
         return verdict
@@ -293,6 +327,31 @@ def _record(operation, preset_id):
     if preset_id and adopted != preset_id:
         return None
     return adopted
+
+
+def _was_adopted(operation):
+    """Whether this operation was ever deliberately put on a shop preset.
+
+    Separate from _record on purpose. _record withholds itself the moment the
+    operation sits on a different preset from the one it names, which is right
+    -- it no longer describes where these values came from. But the FACT that
+    somebody put this operation on a shop preset is still true, and throwing it
+    away with the name cost the operation its place in the system: pick a newer
+    preset and adjust a feed in the same visit to the dialog, which is an
+    ordinary thing to do, and the verdict fell to "never set from a UTP", which
+    writes no note. The operation left the system silently and nothing brought
+    it back, because only an exact match re-adopts.
+
+    The operationId check still applies: a record copied onto a duplicated
+    operation describes the original, not this one.
+    """
+    held = _held(operation)
+    if not held or not held.get(config.KEY_ADOPTED_PRESET):
+        return False
+    owner = held.get(config.KEY_OPERATION_ID)
+    if owner is not None and str(owner) != _id(operation):
+        return False
+    return True
 
 
 def _held(operation):
