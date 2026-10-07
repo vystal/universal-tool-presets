@@ -664,13 +664,14 @@ SWITCHES_SAVED = "Switches saved.\n\n%s"
 SWITCHES_UNCHANGED = "Nothing changed."
 SWITCHES_FOOTER = ("These are for this machine, not for the document. They "
                    "stay set until you change them.")
-SWITCHES_GONE = ("Your saved switches have gone missing, so nothing is "
-                 "happening on its own until you set them again.\n\nThis "
-                 "machine has chosen switches before, and the file is not "
-                 "there now. The usual reason is a cloud sync renaming it: "
-                 "the folder lives under Documents, which OneDrive often "
-                 "takes over.\n\nPress Switches, set them how you want them, "
-                 "and save. That puts it back.")
+SWITCHES_GONE = ("Your saved switches have gone missing, so the two that "
+                 "cannot be undone have been left off: numbering the shop "
+                 "library, and removing unused presets.\n\nEverything else is "
+                 "running normally. This machine has chosen switches before "
+                 "and the file is not there now; the usual reason is a cloud "
+                 "sync renaming it, since the folder lives under Documents, "
+                 "which OneDrive often takes over.\n\nSet them how you want "
+                 "them and save. That puts it back.")
 SWITCHES_DAMAGED = ("The saved switches could not be read, so everything "
                     "is off. Set them how you want them and press OK.")
 

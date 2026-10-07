@@ -86,6 +86,13 @@ class Bench:
         if os.path.exists(config.SETTINGS_FILE):
             with open(config.SETTINGS_FILE, encoding="utf-8") as handle:
                 self.switches = handle.read()
+        # Whether this machine had ever had switches chosen on it. save() leaves
+        # a mark saying so, kept where nothing syncs, and restoring the file
+        # without restoring the mark left the machine looking like one whose
+        # switches had been taken away -- which stands the irreversible ones
+        # down. Measured: after a suite run the shop machine read every switch
+        # off, which is a test making the thing it tests worse.
+        self.chosen = os.path.exists(config.SETTINGS_CHOSEN)
         settings.save({key: True for key, _l, _g, _s in settings.CONTROLS})
 
     def operations(self):
@@ -99,6 +106,8 @@ class Bench:
     def restore(self):
         """Put the notes, colours and switches back, so the suite can run again."""
         try:
+            if not self.chosen and os.path.exists(config.SETTINGS_CHOSEN):
+                os.remove(config.SETTINGS_CHOSEN)
             if self.switches is None:
                 if os.path.exists(config.SETTINGS_FILE):
                     os.remove(config.SETTINGS_FILE)

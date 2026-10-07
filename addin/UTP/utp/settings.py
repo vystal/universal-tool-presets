@@ -43,6 +43,12 @@ CONTROLS = (
     ("stamp", "Number the shop library", "what", "MAY_BUMP_LIBRARY_VERSIONS"),
 )
 
+# The switches that must never come back on by themselves, because what they do
+# cannot be undone: stamp writes into the shop's shared library, the only write
+# that leaves this person's own document, and tidy deletes presets. Everything
+# else this add-in writes comes back off with Remove all notes.
+CANNOT_BE_TAKEN_BACK = ("stamp", "tidy")
+
 GROUPS = (("when", "When it checks on its own"),
           ("what", "What it may write"))
 
@@ -136,6 +142,16 @@ def _read():
     damaged["gone"] = False
     if not os.path.exists(config.SETTINGS_FILE):
         if _chosen_before():
+            # Not everything off. That was the first attempt and it was far too
+            # blunt: it stopped the add-in doing anything at all, which is its
+            # own silent failure and is not what a missing file is evidence of.
+            #
+            # What must not come back on by itself is the two that cannot be
+            # taken back: "stamp" writes version numbers into the shop's shared
+            # library, which is the only write that leaves this person's own
+            # document and has no undo, and "tidy" deletes presets. Notes and
+            # colours are reversible by Remove all notes, so they stay on their
+            # defaults and the add-in keeps working.
             # Somebody chose switches on this machine and the file is not there
             # now. It was not this add-in that removed it -- save() only ever
             # replaces it -- so something outside did, and the likeliest thing
@@ -145,7 +161,9 @@ def _read():
             # fresh install turns on the two switches that write outside their
             # own document.
             damaged["gone"] = True
-            return {key: False for key, _l, _g, _s in CONTROLS}
+            for key in CANNOT_BE_TAKEN_BACK:
+                held[key] = False
+            return held
         # Nobody has chosen anything yet. The defaults are what a fresh
         # install does, which is everything on.
         return held

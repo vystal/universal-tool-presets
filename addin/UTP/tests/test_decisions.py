@@ -689,15 +689,20 @@ def test_numbering_the_shop_library_is_on_by_default():
     import os
     import tempfile
 
-    was = config.SETTINGS_FILE
-    config.SETTINGS_FILE = os.path.join(tempfile.mkdtemp(), "none.json")
+    scratch = tempfile.mkdtemp()
+    was, was_mark = config.SETTINGS_FILE, config.SETTINGS_CHOSEN
+    config.SETTINGS_FILE = os.path.join(scratch, "none.json")
+    # The mark too. Without this the test read the real machine's mark, so a
+    # machine that had ever saved switches made it fail -- it was asserting
+    # something about this computer rather than about a fresh install.
+    config.SETTINGS_CHOSEN = os.path.join(scratch, "mark", "none")
     settings.forget()
     try:
         assert config.MAY_BUMP_LIBRARY_VERSIONS is True
         assert settings.default("stamp") is True
         assert settings.on("stamp") is True, "a fresh install would not number"
     finally:
-        config.SETTINGS_FILE = was
+        config.SETTINGS_FILE, config.SETTINGS_CHOSEN = was, was_mark
         settings.forget()
 
 
@@ -874,10 +879,19 @@ def test_switches_that_vanish_after_being_chosen_do_not_come_back_on():
         settings.values()          # damaged is only set once the read happens
         assert settings.damaged["gone"] is True, (
             "a chosen file going missing was read as a fresh install")
-        for key, _l, _g, _s in settings.CONTROLS:
+        # Only the two that cannot be taken back. Standing everything down was
+        # the first attempt and it stopped the add-in doing anything at all,
+        # which is its own silent failure and not what a missing file is
+        # evidence of.
+        for key in settings.CANNOT_BE_TAKEN_BACK:
             assert settings.on(key) is False, (
-                "%s came back on by itself; tidy deletes presets and stamp "
-                "writes to the shared library" % key)
+                "%s came back on by itself; stamp writes to the shared library "
+                "and tidy deletes presets, and neither can be undone" % key)
+        for key in ("on", "open", "edit", "mark"):
+            assert settings.on(key) is True, (
+                "%s was stood down, so the add-in does nothing and says nothing "
+                "-- notes come back off with Remove all notes, so there is no "
+                "reason to refuse them" % key)
 
         # And saving from the Switches dialog is the cure.
         settings.save({key: True for key, _l, _g, _s in settings.CONTROLS})
