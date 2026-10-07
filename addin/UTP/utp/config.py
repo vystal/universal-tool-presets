@@ -326,20 +326,6 @@ SHOW_PROGRESS = False
 # after Fusion's snapshot and left the file needing a second save.
 PASS_SECONDS = 2.0
 
-# How many operations a setup may hold before its note is left to a pass rather
-# than written inside somebody's edit.
-#
-# A setup's note is a count, so it means a reconcile per operation in that setup
-# -- about three milliseconds each, measured 7 October. Thirty operations is
-# under a tenth of a second and nobody notices; four hundred would be over a
-# second, inside their dialog, several times over as the listener fires while
-# they work.
-#
-# It is written there at all because Fusion groups what is written inside an
-# action into one undo step. A setup note written afterwards is a second Ctrl+Z
-# on top of theirs, and a count that says "2 of 7 need updating" is wrong the
-# moment one of them stops needing it.
-SETUP_NOTE_AT_MOST = 60
 
 # Below this many operations a pass is quick enough that a progress bar is
 # only a flicker, so it is not shown even when the switch is on.
@@ -525,15 +511,6 @@ RETIRED_FORMAT = "%d %b %Y"
 # adjusts a UTP twice while a job is running.
 RETIRED_FORMAT_EXACT = "%d %b %Y %H:%M"
 
-# A setup's note. A collapsed setup hides its operations' icons entirely, so
-# without this somebody working with everything folded up sees nothing at all.
-# The colour answers "do I need to look in here", the text says what is in it.
-# Only "behind" is a task, so only "behind" turns it yellow: custom is
-# somebody's decision, and operations that were never on a UTP are counted out
-# rather than counted against.
-SETUP_BEHIND = "%d of %d need updating"
-SETUP_CUSTOM = "%d tracked, %d custom"
-SETUP_CLEAN = "%d tracked, up to date"
 
 ICON_FOR_STATE = {
     "current": "Green",
@@ -730,11 +707,12 @@ to go on. The note turns green. Ctrl+Z puts the preset back.
 If you would rather leave it, leave it. Nothing will chase you.
 
 
-The note on a setup
+Setups, folders and patterns are not marked
 
-A collapsed setup hides its operations, so each setup says what is inside:
-"2 of 7 need updating" in yellow, or "7 tracked, up to date" in green. The
-count is only of operations being tracked.
+Only operations carry notes. Setups used to carry a count of what was inside
+them; folders and patterns hide their operations the same way and never had
+one, so it was cover nobody could rely on. Old setup notes come off the next
+time a job is checked.
 
 
 When it runs

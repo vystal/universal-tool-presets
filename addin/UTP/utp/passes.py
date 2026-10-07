@@ -484,47 +484,55 @@ def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
     return wrote
 
 
-def _mark_setups(cam, tools, report, writing, decided=None):
-    """A signpost on each setup, because a collapsed one hides everything.
+def _clear_setup_marks(cam, report, writing):
+    """Take the add-in's line and colour off every setup.
 
-    Done after the operations, so it describes what they have just become
-    rather than what they were.
+    Setups are not marked any more, and this is what sees the ones already out
+    there off. A note nothing maintains is worse than no note: a collapsed setup
+    reading "2 of 7 need updating" when it is one, for ever, is the exact thing
+    the note was there to prevent.
+
+    Dropped on 8 October, decided in the shop. Two reasons, and the second is
+    the one that settles it.
+
+    Fusion will not allow it where it would have to happen. A setup's note is a
+    count of what is inside it, so it is wrong the instant one of those
+    operations changes -- and writing it from inside the person's edit, where it
+    would have been part of their own undo step, is refused outright: "the given
+    operation cannot be edited while another one is edited", measured. So it
+    could only ever be written after their dialog closed, as a separate step
+    they had to undo separately.
+
+    And it was never the protection it looked like. A collapsed setup hides its
+    operations, which is why the note existed -- but patterns and folders hide
+    them exactly the same way and never carried one. Partial cover nobody can
+    rely on is worse than none, because it reads as cover.
+
+    Nothing replaces it. The operations carry their own notes and colours, which
+    is where the information belongs.
     """
-    known = {}
-    for operation, verdict in (decided or []):
-        if verdict.get("operationId"):
-            known[verdict["operationId"]] = verdict
-    for setup, operations in by_setup(cam, report):
-        counts = {}
-        for index, operation in enumerate(operations):
-            _breathe(index)
-            try:
-                verdict = known.get(str(operation.operationId))
-                if verdict is None:
-                    verdict = state.reconcile(operation, tools)
-            except Exception:
-                continue
-            counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
+    for setup, _operations in by_setup(cam, report):
         try:
-            changes = marks.setup_plan(setup, counts)
+            changes = marks.strip(setup)
         except Exception:
-            report.failed("could not work out a note for a setup")
+            report.failed("could not work out what to take off a setup")
             continue
         if not changes:
             continue
         name = getattr(setup, "name", "?")
         if not writing:
-            report.note("would mark the setup %s" % name,
+            report.note("would take the old note off the setup %s" % name,
                         would=marks.describe(changes))
             continue
         try:
             marks.apply(setup, changes)
             adsk.doEvents()
             report.wrote += len(changes)
-            report.note("marked the setup %s" % name,
-                        did=marks.describe(changes))
+            report.note("took the old note off the setup %s" % name,
+                        did=marks.describe(changes),
+                        why="setups are not marked any more")
         except Exception:
-            report.failed("could not mark the setup %s" % name)
+            report.failed("could not clear the setup %s" % name)
 
 
 def remove_marks(app):
@@ -952,7 +960,7 @@ def run(app, allow_writing=True):
             report.note("and of the writing, seconds",
                         **{k: round(v, 2) for k, v in marks.cost.items()})
             progress.done()
-            _mark_setups(cam, tools, report, writing, decided)
+            _clear_setup_marks(cam, report, writing)
             clock.at("setup notes")
             clock.say()
 

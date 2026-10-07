@@ -544,34 +544,49 @@ def _save_writes_nothing(bench):
                     "wrote nothing" % len(after))
 
 
-@check("setups are marked by a pass, but only a complete one")
+@check("setups are not marked, and old setup notes are taken off")
 def _setups(bench):
+    """Dropped on 8 October, decided in the shop.
+
+    Fusion will not allow it where it would have to happen: writing a setup's
+    note from inside the person's edit, where it would have joined their own
+    undo step, is refused outright -- "the given operation cannot be edited
+    while another one is edited", straight out of the log. So it could only ever
+    be a separate step they had to undo separately, and one Ctrl+Z after an edit
+    reverted the setup's icon and nothing else.
+
+    And it was never the cover it looked like: folders and patterns hide their
+    operations exactly the same way and never carried one.
+
+    So a pass takes the old ones off instead, and writes none.
+    """
     with marks.holding():
         for i in range(bench.cam.setups.count):
-            bench.cam.setups.item(i).notes = ""
+            bench.cam.setups.item(i).notes = marks.ours("2 of 7 need updating")
     library.forget()
-    events.mark_document(bench.document, "integration: setups")
-    said = [bench.cam.setups.item(i).notes or ""
-            for i in range(bench.cam.setups.count)]
-    ours = [n for n in said if n.startswith(config.NOTE_PREFIX)]
-    tracked = 0
-    tools = bench.tools()
-    seen = {}
-    for operation in bench.operations():
-        if state.reconcile(operation, tools, seen)["state"] in (
-                state.CURRENT, state.BEHIND, state.CUSTOM):
-            tracked += 1
-    if tracked and not ours:
-        return "FAIL", ("%d tracked operations and no setup note; only the "
-                        "button used to write these" % tracked)
-    if not tracked:
-        return "SKIP", "nothing tracked on the bench, so no setup has anything to say"
-    return "PASS", "%d of %d setups marked" % (len(ours), len(said))
+    passes.run(bench.app)
 
+    left = []
+    for i in range(bench.cam.setups.count):
+        said = bench.cam.setups.item(i).notes or ""
+        if said.startswith(config.NOTE_PREFIX) or config.NOTE_PREFIX in said:
+            left.append(bench.cam.setups.item(i).name)
+    if left:
+        return "FAIL", ("a pass left its own note on %d setup(s): %s. Nothing "
+                        "maintains them now, so one that stays is wrong for "
+                        "ever." % (len(left), left[:3]))
 
-# ---------------------------------------------------------------------------
-# The button's pass
-# ---------------------------------------------------------------------------
+    # And a second pass must not put any back.
+    library.forget()
+    passes.run(bench.app)
+    again = [bench.cam.setups.item(i).name
+             for i in range(bench.cam.setups.count)
+             if config.NOTE_PREFIX in (bench.cam.setups.item(i).notes or "")]
+    if again:
+        return "FAIL", "a pass wrote a setup note: %s" % again[:3]
+    return "PASS", ("%d setups, none marked, old notes taken off"
+                    % bench.cam.setups.count)
+
 
 @check("a part-swept document carries on at the next trigger")
 def _resumes(bench):

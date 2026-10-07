@@ -257,13 +257,35 @@ def test_our_colour_comes_off_when_our_note_does():
     assert planned["note"]["to"] == "mine"
 
 
-def test_a_setup_remembers_the_colour_it_had():
-    """Found by review: setup_plan never writes a record, so strip() cannot
-    put a setup's colour back and always paints it grey."""
-    setup = Owner("", None, "Blue")
-    planned = marks.setup_plan(setup, {state.BEHIND: 2, state.CURRENT: 5})
-    assert "record" in planned, "nothing remembers the setup was Blue"
-    assert planned["record"].get("i") == "Blue"
+def test_setups_are_not_marked_at_all():
+    """Dropped on 8 October, decided in the shop.
+
+    Fusion will not allow it where it would have to happen: a setup's note is a
+    count of what is inside it, so it is wrong the instant one of those
+    operations changes, and writing it from inside the person's edit -- where it
+    would have joined their own undo step -- is refused outright with "the given
+    operation cannot be edited while another one is edited". It could only ever
+    be a separate step they had to undo separately.
+
+    And it was never the cover it looked like: folders and patterns hide their
+    operations exactly the same way and never carried a note.
+
+    So nothing writes one, and what is left is the path that takes the old ones
+    off.
+    """
+    assert not hasattr(marks, "setup_plan"), (
+        "something can plan a setup note again")
+    assert not hasattr(marks, "setup_line"), (
+        "something can word a setup note again")
+    for name in ("SETUP_BEHIND", "SETUP_CUSTOM", "SETUP_CLEAN"):
+        assert not hasattr(config, name), "%s is back" % name
+    # The way out still works: strip takes a setup's note and colour off.
+    owner = Owner(marks.ours("2 of 7 need updating") + "\nmy own words",
+                  ADOPTED, "Yellow")
+    changes = marks.strip(owner)
+    assert changes.get("note", {}).get("to") == "my own words", changes
+    # and the documentation says they are not marked
+    assert "not marked" in config.INSTRUCTIONS.lower()
 
 
 def test_clearing_a_note_during_their_own_edit_leaves_it_cleared():

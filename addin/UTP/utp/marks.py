@@ -102,65 +102,6 @@ def note_line(verdict):
     return None
 
 
-def setup_line(counts):
-    """What a setup says about the operations inside it, or None.
-
-    Colour answers "do I need to look in here", text says what is in it.
-    Operations that were never on a UTP are counted out rather than counted
-    against: a setup of twenty legacy operations has nothing to say, exactly
-    as those operations have nothing to say themselves.
-    """
-    behind = counts.get(state.BEHIND, 0)
-    custom = counts.get(state.CUSTOM, 0)
-    tracked = behind + custom + counts.get(state.CURRENT, 0)
-    if not tracked:
-        return None, None
-    if behind:
-        return ours(config.SETUP_BEHIND % (behind, tracked)), "Yellow"
-    if custom:
-        # Green, because a deliberate override is not a task. The count is
-        # still said, so green cannot be read as "everything here is on the
-        # shop's presets".
-        return ours(config.SETUP_CUSTOM % (tracked, custom)), "Green"
-    return ours(config.SETUP_CLEAN % tracked), "Green"
-
-
-def setup_plan(setup, counts):
-    """What would change on a setup. Empty means nothing to do."""
-    changes = {}
-    if not settings.on("mark"):
-        return changes
-    line, colour = setup_line(counts)
-    existing = _notes(setup)
-    wanted = merge(existing, line)
-    if wanted != (existing or ""):
-        changes["note"] = {"from": existing or "", "to": wanted}
-    if colour is None and _ours_in(existing):
-        # Nothing tracked in here any more, usually because the last tracked
-        # operation was deleted. Same as an operation: the colour comes off
-        # with the line, or the setup keeps a yellow "look in here" over a
-        # note that no longer exists.
-        colour = _was_icon(setup) or config.ICON_DEFAULT
-    if colour is not None and _icon(setup) != colour:
-        changes["icon"] = {"from": _icon(setup), "to": colour}
-    if changes and not _marked_before(setup):
-        # The colour it had before any of this, so removing the marks can put
-        # it back. Operations have recorded theirs since the beginning and
-        # setups never did, so "your own icon colours are kept, and put back
-        # if you remove the marks" was false for every setup somebody had
-        # coloured: strip() found nothing to restore and painted it grey.
-        #
-        # Only once, when the add-in first touches this setup, and only when
-        # there is something else to write anyway. A setup is one write, not
-        # one per operation.
-        held = {"s": config.SCHEMA}
-        was = _icon(setup)
-        if was is not None:
-            held["i"] = was
-        changes["record"] = held
-    return changes
-
-
 def merge(existing, line):
     """The note the add-in would leave behind, ours first and theirs below.
 

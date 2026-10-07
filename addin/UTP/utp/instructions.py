@@ -94,11 +94,15 @@ by picking a preset.</p>
 <p>If you would rather leave it, leave it. Nothing will chase you, and
 nothing is blocked.</p>
 
-<h2>The note on a setup</h2>
-<p>A collapsed setup hides its operations, so each setup says what is inside
-it: <em>2 of 7 need updating</em> in yellow, or <em>7 tracked, up to
-date</em> in green. The count is only of operations being tracked, so a setup
-of twenty older operations and one tracked one says <em>1 tracked</em>.</p>
+<h2>Setups, folders and patterns are not marked</h2>
+<p>Only operations carry notes. Setups used to carry a count of what was inside
+them, and that was dropped: folders and patterns hide their operations in
+exactly the same way and never had one, so it was cover you could not rely on,
+which is worse than none. Any old setup notes are taken off the next time a job
+is checked.</p>
+<p>So to see where a job stands, look at the operations. If you work with
+everything folded up, open it or press <em>Check this document</em> and read
+the report.</p>
 
 <h2>When it runs</h2>
 <p>When you open a job, when you go into the Manufacture workspace, and when
