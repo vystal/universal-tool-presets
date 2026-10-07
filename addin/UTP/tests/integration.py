@@ -144,6 +144,22 @@ class Bench:
         return None, None
 
 
+def readable():
+    """Whether the shop libraries can be read at all, right now.
+
+    Checks that depend on a reading must skip rather than fail when there is
+    none to be had. Measured 8 October: the suite ran 83 seconds after a cold
+    Fusion start, before the Hub was ready, and reported five failures including
+    "entering CAMEnvironment did not read the libraries" -- which reads as a
+    regression and is not one. A minute later the same read took 3.67 seconds
+    and found eight libraries. A suite that cannot tell a broken add-in from a
+    machine that has not finished starting is a suite that gets ignored.
+    """
+    library.forget()
+    _tools, ok = library.cached(Quiet(), None)
+    return bool(ok) and not library.incomplete()
+
+
 def pump(times=40):
     for _ in range(times):
         adsk.doEvents()
@@ -243,6 +259,9 @@ def _warmed(bench):
                 if isinstance(h, events._WorkspaceActivated)]
     if not attached:
         return "FAIL", "nothing is listening for the workspace to change"
+    if not readable():
+        return "SKIP", ("the shop libraries cannot be read on this machine "
+                        "right now, so nothing could warm them")
 
     class Args:
         class workspace:
@@ -285,6 +304,8 @@ def _stale_refreshed(bench):
     heartbeat now. Checked here with the clock wound back rather than by
     waiting fifteen minutes.
     """
+    if not readable():
+        return "SKIP", "the shop libraries cannot be read right now"
     library.forget()
     events._warm_now("integration: cold")
     if not library.warm():
@@ -352,6 +373,8 @@ def _cold_edit(bench):
     operation, verdict = bench.a_tracked_operation()
     if operation is None:
         return "SKIP", "no tracked operation on the bench"
+    if not readable():
+        return "SKIP", "the shop libraries cannot be read right now"
     library.forget()
     del events._waiting[:]
     held = operation.notes or ""
@@ -387,6 +410,8 @@ def _warm_edit(bench):
     operation, verdict = bench.a_tracked_operation()
     if operation is None:
         return "SKIP", "no tracked operation on the bench"
+    if not readable():
+        return "SKIP", "the shop libraries cannot be read right now"
     bench.tools()                   # warm
     if not library.warm():
         return "SKIP", "the libraries could not be read"
@@ -565,6 +590,8 @@ def _resumes(bench):
     total = len(bench.operations())
     if total < 2:
         return "SKIP", "needs more than one operation"
+    if not readable():
+        return "SKIP", "the shop libraries cannot be read right now"
     was = config.PASS_SECONDS
     config.PASS_SECONDS = 0.001
     events.forget_sweeps()
