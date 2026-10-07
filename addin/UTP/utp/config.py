@@ -326,6 +326,21 @@ SHOW_PROGRESS = False
 # after Fusion's snapshot and left the file needing a second save.
 PASS_SECONDS = 2.0
 
+# How many operations a setup may hold before its note is left to a pass rather
+# than written inside somebody's edit.
+#
+# A setup's note is a count, so it means a reconcile per operation in that setup
+# -- about three milliseconds each, measured 7 October. Thirty operations is
+# under a tenth of a second and nobody notices; four hundred would be over a
+# second, inside their dialog, several times over as the listener fires while
+# they work.
+#
+# It is written there at all because Fusion groups what is written inside an
+# action into one undo step. A setup note written afterwards is a second Ctrl+Z
+# on top of theirs, and a count that says "2 of 7 need updating" is wrong the
+# moment one of them stops needing it.
+SETUP_NOTE_AT_MOST = 60
+
 # Below this many operations a pass is quick enough that a progress bar is
 # only a flicker, so it is not shown even when the switch is on.
 PROGRESS_FROM = 40
@@ -708,7 +723,9 @@ The notes on your operations
    no note                              never put on a shop preset
 
 To update a yellow one: open the operation, go to the preset dropdown, pick
-the one ending (latest). The note turns green. Ctrl+Z puts the preset back.
+the entry that starts with the name in the note and ends (latest). A tool used
+for two materials has one of those for each, so the suffix alone is not enough
+to go on. The note turns green. Ctrl+Z puts the preset back.
 
 If you would rather leave it, leave it. Nothing will chase you.
 

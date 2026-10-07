@@ -902,3 +902,23 @@ def test_switches_that_vanish_after_being_chosen_do_not_come_back_on():
     finally:
         config.SETTINGS_FILE, config.SETTINGS_CHOSEN = was_file, was_mark
         settings.forget()
+
+
+def test_nothing_says_the_latest_suffix_alone_identifies_the_preset():
+    """A tool used for two materials has a "(latest)" for each.
+
+    Measured on the bench, one tool's dropdown: 'P Copper (until 07 Oct 2026)',
+    'P Copper (until 07 Oct 2026 12:55)', 'P Copper v23 (latest)',
+    'P Titanium v9 (latest)'. Two entries end in (latest), for different UTPs.
+    "Pick the one ending (latest)" sent somebody to a coin toss between two
+    materials' feeds, which is a wrong-feeds instruction rather than a vague one.
+
+    The note already names the UTP, so the instruction has to lean on that.
+    """
+    for where in (config.INSTRUCTIONS,):
+        said = where.lower()
+        if "(latest)" not in said:
+            continue
+        assert "name in the note" in said, (
+            "still telling somebody to pick by the (latest) suffix alone, and a "
+            "tool with two UTPs has two of them")

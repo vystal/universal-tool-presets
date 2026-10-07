@@ -83,7 +83,11 @@ by picking a preset.</p>
 
 <div class="do">
   <strong>To update a yellow one:</strong> open the operation, go to the tool
-  preset dropdown, and pick the one ending <strong>(latest)</strong>. The note
+  preset dropdown, and pick the entry that <strong>starts with the name in
+  the note</strong> and ends <strong>(latest)</strong>. A tool used for two
+  materials has a <em>(latest)</em> for each of them, so "the one ending
+  (latest)" is not enough to go on: the note says <code>`UTP P Copper v3 -
+  v4 available`</code>, so the entry to pick is the P Copper one. The note
   turns green. Ctrl+Z puts the preset back.
 </div>
 

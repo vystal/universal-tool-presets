@@ -221,6 +221,14 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
                     written = marks.apply(operation, would)
                 except Exception as exc:
                     written = "failed: %s" % exc
+                # And the setup's own note, in the same breath, because a
+                # collapsed setup says "2 of 7 need updating" and that count is
+                # wrong the moment one of them stops needing it. Written here
+                # rather than waiting for a sweep so it joins the same command:
+                # Fusion groups what is written inside an action into one undo
+                # step, and a setup note written afterwards would be a second
+                # Ctrl+Z on top of theirs.
+                setup_written = _mark_the_setup_of(operation, tools)
             diagnostics.session_log(
                 "edit seen", operation=name, verdict=verdict["state"],
                 preset=verdict.get("preset"),
@@ -228,6 +236,7 @@ class _OperationChanged(adsk.cam.OperationBaseEventHandler):
                 why=verdict.get("why"),
                 would=marks.describe(would) if would else "nothing",
                 written=written or "nothing", held_back=held_back,
+                setup=setup_written if would and allowed else None,
                 document_guess=guessed)
         except Exception as exc:
             diagnostics.session_log("edit handler failed", error=str(exc))
@@ -506,6 +515,51 @@ def catch_up(document, why):
     if done.get("complete") and done.get("reading") == library.read_at():
         return 0
     return mark_document(document, why)
+
+
+def _mark_the_setup_of(operation, tools):
+    """Bring the owning setup's note up to date. Returns what it did, or None.
+
+    Only the one setup, counted from its own operations. The whole document's
+    setups are a sweep's business; this is for the one the person is working in,
+    and it has to happen inside their command or it is a second undo step.
+
+    Capped, because the count is a reconcile per operation in the setup -- about
+    three milliseconds each, measured, so a setup of thirty is under a tenth of
+    a second and one of four hundred would be more than a second inside their
+    dialog, several times over as the listener fires. Past the cap the sweep
+    does it, which is how it worked for every setup until now.
+    """
+    from . import passes
+    try:
+        setup = operation.parentSetup
+    except Exception:
+        return None
+    if setup is None:
+        return None
+    try:
+        inside = passes._within(setup)
+    except Exception:
+        return None
+    if not inside:
+        return None
+    if len(inside) > config.SETUP_NOTE_AT_MOST:
+        return "left to the next pass: %d operations" % len(inside)
+    counts = {}
+    seen = {}
+    for one in inside:
+        try:
+            found = state.reconcile(one, tools, seen)["state"]
+        except Exception:
+            continue
+        counts[found] = counts.get(found, 0) + 1
+    try:
+        changes = marks.setup_plan(setup, counts)
+        if not changes:
+            return None
+        return marks.apply(setup, changes)
+    except Exception as exc:
+        return "failed: %s" % exc
 
 
 class _DocumentOpened(adsk.core.DocumentEventHandler):
