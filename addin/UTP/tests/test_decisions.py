@@ -90,6 +90,8 @@ class Attrs:
 class Owner:
     """An operation or a setup, as far as the decisions are concerned."""
 
+    operationId = "o1"
+
     def __init__(self, notes="", record=None, icon="Gray"):
         self.notes = notes
         self.noteIconColor = getattr(_Colours, icon)
@@ -668,3 +670,79 @@ def test_the_tidy_never_offers_a_preset_an_operation_is_running():
     # And one in use with only one other present leaves nothing to take, since
     # the most recently retired copy is kept as the record of what it ran.
     assert presets.removable(FakeTool([one, two]), library_tool, {two.id}) == []
+
+
+def test_numbering_the_shop_library_is_on_by_default():
+    """Decided on 7 October: the shop wants version numbers on.
+
+    It is the only thing the add-in writes outside somebody's own document, and
+    the only write with no undo, so it is worth being deliberate about. The
+    two-writer race it carries is narrowed and detected rather than closed --
+    see versions.review -- and the alternative is notes that can only say
+    "something newer" instead of "v3 available".
+
+    Pinned because this default is the sort of thing that gets flipped while
+    investigating something else. The test agent sets it False for the duration
+    of a job, on purpose, to keep tests off the real libraries; that is a
+    runtime guard and must not become the shipped default.
+    """
+    import os
+    import tempfile
+
+    was = config.SETTINGS_FILE
+    config.SETTINGS_FILE = os.path.join(tempfile.mkdtemp(), "none.json")
+    settings.forget()
+    try:
+        assert config.MAY_BUMP_LIBRARY_VERSIONS is True
+        assert settings.default("stamp") is True
+        assert settings.on("stamp") is True, "a fresh install would not number"
+    finally:
+        config.SETTINGS_FILE = was
+        settings.forget()
+
+
+def test_the_add_in_taking_its_own_note_off_is_not_somebody_clearing_it():
+    """Reported from real use on 7 October, and the cause of the flakiness.
+
+    Create an operation; pick a tool whose preset the add-in tracks and a note
+    appears; then, without leaving the dialog, pick a tool whose only preset is
+    the one Fusion makes by itself. The add-in correctly takes its line off,
+    because that is not a shop preset. Pick the first tool again and the note
+    never comes back -- not even on OK.
+
+    Because "this was marked before, and there is no line of ours there now" is
+    exactly what a person deleting the note looks like, and the add-in stands
+    down for that on purpose so a note can be deleted at all. Its own removal
+    was indistinguishable, and the record survives a "not a UTP tool" verdict,
+    so the guard latched for the rest of the visit.
+
+    Both halves are pinned here: the sequence must end with the note back, and
+    a person clearing it must still be left alone.
+    """
+    marks._we_cleared.clear()
+
+    owner = Owner("", None, "Gray")
+    steps = []
+    for kind in (state.CURRENT, state.NOT_UTP, state.CURRENT):
+        change = marks.plan(owner, verdict(kind), during_their_edit=True)
+        marks.apply(owner, change)
+        steps.append(sorted(change))
+
+    assert "note" in steps[0], "picking a tracked tool wrote no note: %s" % steps
+    assert "note" in steps[1], "picking an untracked tool left the note on"
+    assert owner.notes, (
+        "the note did not come back after picking the tracked tool again; "
+        "the add-in mistook its own removal for somebody deleting it")
+    assert "note" in steps[2]
+
+    # The feature that guard exists for still has to work: a person clearing
+    # the note is left alone while they are still editing.
+    owner.notes = ""
+    during = marks.plan(owner, verdict(state.CURRENT, record="P Titanium"),
+                        during_their_edit=True)
+    assert during == {}, (
+        "a note the person cleared was put straight back, so it cannot be "
+        "deleted at all: %s" % during)
+    # and a check or an open works it out again
+    after = marks.plan(owner, verdict(state.CURRENT, record="P Titanium"))
+    assert "note" in after, "a check no longer restores a cleared note"

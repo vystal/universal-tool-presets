@@ -180,6 +180,27 @@ def _was_icon(owner):
     return None
 
 
+# Operations whose own line this add-in took off, as opposed to a person
+# deleting it. Keyed by the operation's id, emptied as soon as it is used.
+#
+# Needed because the two look identical from the outside, and getting them
+# confused cost the note entirely. Reported 7 October: create an operation, pick
+# a tool whose preset the add-in tracks -- note written -- then, without leaving
+# the dialog, pick a tool whose only preset is the one Fusion makes by itself.
+# The add-in correctly takes its line off. Pick the first tool again and the note
+# never comes back, not even on OK, because "marked before, and no line there
+# now" is exactly what a person clearing it looks like. That is the flakiness
+# people were seeing: the note would go and stay gone for the rest of the visit.
+_we_cleared = set()
+
+
+def _id_of(owner):
+    try:
+        return owner.operationId
+    except Exception:
+        return None
+
+
 def _marked_before(owner):
     """Whether the add-in has written a record on this one.
 
@@ -261,7 +282,8 @@ def plan(operation, verdict, during_their_edit=False):
     line = note_line(verdict)
 
     if (during_their_edit and line and _marked_before(operation)
-            and not _ours_in(existing)):
+            and not _ours_in(existing)
+            and _id_of(operation) not in _we_cleared):
         # They have just cleared our line, and clearing a note raises the
         # same event as any other edit, so putting it straight back meant it
         # could not be deleted at all. Left alone for now.
@@ -470,6 +492,21 @@ def forget_cost():
 def _apply(operation, changes):
     done = []
     if "note" in changes:
+        # Whether this write is the add-in taking its own line off. Recorded on
+        # the write rather than in plan, because a plan that is only reported
+        # and never applied must not suppress anything later.
+        note = changes["note"]
+        found = _id_of(operation)
+        if found is not None:
+            if _ours_in(note.get("from")) and not _ours_in(note.get("to")):
+                _we_cleared.add(found)
+            elif _ours_in(note.get("to")):
+                # Our line is back on, so whatever happens to it next is
+                # somebody else's doing. Forgotten here rather than when the
+                # guard reads it: left set, a person could never clear that
+                # operation's note again, which is the feature this protects.
+                _we_cleared.discard(found)
+
         mark = time.time()
         operation.notes = changes["note"]["to"]
         cost["note"] += time.time() - mark
