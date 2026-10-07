@@ -59,6 +59,14 @@ def note_line(verdict):
                                       config.NOTE_SEPARATOR,
                                       config.NOTE_COPY_CANNOT_HOLD))
         newer = verdict.get("libraryVersion")
+        if newer is not None and newer == verdict.get("documentVersion"):
+            # Never "v1 - v1 available". Whatever got the two the same -- a
+            # version named before a bump landed, a stamp that was refused, a
+            # copy carrying a number the library has since reused -- naming it
+            # tells somebody to update to what they already have, in orange.
+            # The operation IS behind, by values, so the note still says so;
+            # it just stops pretending to know which version would fix it.
+            newer = None
         # "v2 - v3 available" when both are known. When the document's own
         # version is not, saying which version is newer is still worth more
         # than saying nothing, so only the second half is dropped.

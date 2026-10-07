@@ -954,3 +954,30 @@ def test_a_copy_with_neither_suffix_is_noticed():
                      copy("P Copper (until 07 Oct 2026)"),
                      copy("P Copper", held=False)])
     assert presets.oddly_named(tidy) == []
+
+
+def test_a_note_never_offers_the_version_the_operation_already_has():
+    """Reported from real use on 8 October: "UTP P Copper v1 - v1 available",
+    orange, telling somebody to update to the version they already had.
+
+    The pass that moves a version re-read the libraries and did NOT recompute
+    the verdicts unless a preset had also moved, so the notes it wrote named the
+    version from before the bump. That ordering is fixed in passes.run; this is
+    the net under it, because the two can come out equal for other reasons -- a
+    stamp that was refused, a copy carrying a number the library has since
+    reused -- and none of them should produce an instruction to install what you
+    are already running.
+
+    The operation IS behind, by values, so the note still says so. It just stops
+    claiming to know which version would fix it.
+    """
+    same = marks.note_line(verdict(state.BEHIND, documentVersion=1,
+                                   libraryVersion=1))
+    assert "v1 available" not in same, same
+    assert config.NOTE_UPDATE in same, (
+        "a behind operation must still say an update is available: %r" % same)
+
+    # And when they really do differ, the number is still named.
+    moved = marks.note_line(verdict(state.BEHIND, documentVersion=1,
+                                    libraryVersion=2))
+    assert "v2 available" in moved, moved

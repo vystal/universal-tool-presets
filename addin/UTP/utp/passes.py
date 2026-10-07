@@ -881,8 +881,18 @@ def run(app, allow_writing=True):
             # Versions before anything reads them, so a note can name one. The
             # refreshed libraries are taken back, because a bump changes what
             # every later step should be reading.
+            was_reading = tools
             tools = _review_versions(cam, decided, tools, report, writing)
             clock.at("reviewed version numbers")
+            if tools is not was_reading:
+                # A number moved, so every verdict in hand names the version it
+                # had before. Only recomputed when the presets moved until now,
+                # which left a pass that bumped a version writing notes a press
+                # behind -- reported from real use as "UTP P Copper v1 - v1
+                # available", orange, telling somebody to update to the version
+                # they already had.
+                decided = _verdicts(operations, tools, report, progress, resolve)
+                clock.at("judged them all again, after the versions moved")
 
             # Presets first, notes second. A behind operation's note is worth
             # little until the newer values are pickable in its dropdown, and
