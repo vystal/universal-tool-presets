@@ -194,6 +194,21 @@ def _expected_digest(source):
     return None
 
 
+def _sweep_old_copies():
+    """Clear away previous copies, best effort, never fatal.
+
+    They are only kept until the swap is done. One that will not go is not a
+    reason to refuse an update -- which is exactly what the fixed name made it.
+    """
+    shutil.rmtree(os.path.join(_CACHE, "code.old"), ignore_errors=True)
+    try:
+        for name in os.listdir(_CACHE):
+            if name.startswith("utp-old-"):
+                shutil.rmtree(os.path.join(_CACHE, name), ignore_errors=True)
+    except Exception:
+        pass
+
+
 def _sync(source, probe_timeout=_TIMEOUT):
     """Fetch and install if there is something newer. Returns the version."""
     try:
@@ -251,13 +266,21 @@ def _sync(source, probe_timeout=_TIMEOUT):
             return None
         # Swapped, never edited in place, so a failure here cannot leave a
         # half-written copy behind.
+        # The old copy goes into a fresh folder each time, rather than into a
+        # fixed "code.old". That fixed name was a way for a machine to stop
+        # updating for ever: the rmtree before it ignores errors, so a leftover
+        # nobody could delete stayed, and os.rename onto an existing folder
+        # fails on Windows -- FileExistsError 183, reproduced in a harness --
+        # which aborted every later update too. The add-in went on working, one
+        # version behind, with a traceback in a log nobody reads. Renaming into
+        # a folder that did not exist a moment ago cannot collide.
         os.makedirs(_CACHE, exist_ok=True)
-        replaced = _CODE + ".old"
-        shutil.rmtree(replaced, ignore_errors=True)
+        _sweep_old_copies()
+        attic = tempfile.mkdtemp(prefix="utp-old-", dir=_CACHE)
         if os.path.isdir(_CODE):
-            os.rename(_CODE, replaced)
+            os.rename(_CODE, os.path.join(attic, "code"))
         shutil.move(unpacked, _CODE)
-        shutil.rmtree(replaced, ignore_errors=True)
+        shutil.rmtree(attic, ignore_errors=True)
         # What the code says it is, not what the probe said. They differ
         # while the cache is catching up with a release.
         installed = _version_in(_CODE) or available
@@ -275,7 +298,9 @@ def _sync(source, probe_timeout=_TIMEOUT):
                  else "no SHA256 published; unverified"))
         return installed
     except Exception:
-        _note("installing failed:\n%s" % traceback.format_exc())
+        _note("could not replace the cached copy, so this machine is still "
+              "running %s and will try again at every start:\n%s"
+              % (_installed() or "nothing", traceback.format_exc()))
         return None
     finally:
         shutil.rmtree(staging, ignore_errors=True)
