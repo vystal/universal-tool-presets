@@ -971,9 +971,9 @@ def _race_guard(bench):
         versions.needed = was
 
     if report.failures < 1:
-        return "FAIL", ("a preset whose values did not match what was decided "
-                        "was written anyway; writing the library back from that "
-                        "shelf reverts whatever somebody else changed")
+        return "FAIL", ("a library that moved between deciding and writing was "
+                        "written anyway; putting it back from the older shelf "
+                        "reverts whatever somebody else changed")
 
     # And the bogus version must not have landed.
     library.forget()

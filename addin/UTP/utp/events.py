@@ -88,16 +88,22 @@ def joined(document):
 
 
 def _may_write(document, operations=(), trigger="open"):
-    """Whether an event is allowed to write to this document.
+    """Whether this is allowed to write to this document.
 
     The trigger names the switch to look at, and must be one of settings.CONTROLS
     -- settings.on answers True for a name it does not know, so a trigger that
     does not exist reads as switched on. This defaulted to "save" for one commit
     after the save switch became "open", which is exactly that.
+
+    trigger=None is for a button. The switches under "When it checks on its own"
+    govern what the add-in does unasked; they have no business refusing somebody
+    who has just pressed something. Pick up library changes went through here
+    with the default trigger and did nothing at all with "when I open a job"
+    switched off, then reported how many changes it had made.
     """
     if not settings.on("on"):
         return False, "the add-in is switched off"
-    if not settings.on(trigger):
+    if trigger is not None and not settings.on(trigger):
         return False, "checking when I %s is switched off" % trigger
     if not config.MAY_WRITE_ON_EVENTS:
         return False, "writing on events is switched off"
@@ -239,7 +245,7 @@ def _cam_of(document):
         return None
 
 
-def mark_document(document, why, budget=-1):
+def mark_document(document, why, budget=-1, trigger="open"):
     """Bring a whole document up to date, as far as the budget allows.
 
     Judges from whatever reading is in hand and never reads the libraries
@@ -266,7 +272,7 @@ def mark_document(document, why, budget=-1):
                                     reason="the Hub libraries could not be read")
             return 0
         all_operations = list(passes.operations_of(document))
-        allowed, held_back = _may_write(document, all_operations)
+        allowed, held_back = _may_write(document, all_operations, trigger)
         counts = {}
         planned = wrote = failed = 0
         seen = {}

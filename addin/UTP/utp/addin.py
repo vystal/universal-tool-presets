@@ -163,7 +163,7 @@ def _refresh(app):
         events.forget_sweeps()
         wrote = events.mark_document(
             document, "refresh: bringing the job up to date with the new reading",
-            budget=None)
+            budget=None, trigger=None)
     path = report.close()
     return (config.REFRESHED % (len(tools), shelves, presets, wrote),
             "Report:\n%s" % path if path else None)

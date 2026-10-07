@@ -130,6 +130,27 @@ def review(libraries, library_presets, report, allowed):
         if shelf is None:
             continue
         plan = {}
+        # Every preset in the shelf, not only the ones being stamped.
+        #
+        # updateToolLibrary writes the WHOLE library back from the shelf it is
+        # given, so checking only the targets left the other half of the loss
+        # wide open: a change to any other preset in the same library, inside
+        # the write window, was still reverted silently. Checking the targets
+        # was better than nothing and was described as narrowing the window; it
+        # did not narrow it for anything but them.
+        was = {}
+        for index in range(shelf.count):
+            tool = shelf.item(index)
+            try:
+                count = tool.presets.count
+            except Exception:
+                continue
+            for position in range(count):
+                one = tool.presets.item(position)
+                try:
+                    was[one.id] = values.scalars(one)
+                except Exception:
+                    continue
         for index in range(shelf.count):
             tool = shelf.item(index)
             try:
@@ -160,6 +181,36 @@ def review(libraries, library_presets, report, allowed):
             continue
         if shelf is None:
             continue
+        # Nothing is written if ANYTHING in this library moved in between,
+        # including presets this pass has no interest in. Writing the shelf back
+        # would revert them, and a version number is never worth somebody
+        # else's feed change.
+        moved = []
+        for index in range(shelf.count):
+            tool = shelf.item(index)
+            try:
+                count = tool.presets.count
+            except Exception:
+                continue
+            for position in range(count):
+                one = tool.presets.item(position)
+                try:
+                    now = values.scalars(one)
+                except Exception:
+                    continue
+                before = was.get(one.id)
+                if before is None:
+                    moved.append(one.name)      # a preset that was not there
+                elif values.differences(now, before) or set(now) != set(before):
+                    moved.append(one.name)
+        if moved:
+            report.failed(
+                "this library changed while its version numbers were being "
+                "worked out (%s), so none were written: putting the library "
+                "back from what was read before that would undo it"
+                % ", ".join(sorted(set(moved))[:4]))
+            continue
+
         wrote_here = False
         for index in range(shelf.count):
             tool = shelf.item(index)
@@ -172,16 +223,6 @@ def review(libraries, library_presets, report, allowed):
                 if preset.id not in plan:
                     continue
                 version, snapshot, name = plan[preset.id]
-                # Checked against what was decided a moment ago. If this preset
-                # moved in between, writing the whole library back from this
-                # shelf would put somebody's change back as it was -- so the
-                # stamp is abandoned and said out loud.
-                now = values.scalars(preset)
-                if values.differences(now, snapshot) or set(now) != set(snapshot):
-                    report.failed(
-                        "%s changed while its version was being worked out, so "
-                        "it was left alone rather than written over" % name)
-                    continue
                 try:
                     group = config.ATTRIBUTE_GROUP
                     preset.attributes.add(group, config.KEY_VERSION,

@@ -537,6 +537,18 @@ def remove_marks(app):
             if not _writable(document, report):
                 return report.close(), {}, config.READ_ONLY
 
+            # The same stand-down the marking pass makes, which this did not.
+            # A build that refuses to WRITE to a document carrying data from a
+            # newer version of the add-in would still cheerfully DELETE all of
+            # it, which is the worse of the two by a distance: an old build
+            # cannot know what the newer one was recording, and there is no undo
+            # once the document is saved.
+            operations_here = _operations(cam)
+            understood, refusal = compat.may_write(compat.survey(operations_here))
+            if not understood:
+                report.failed("not removing anything: %s" % refusal)
+                return report.close(), {}, refusal
+
             cleared = 0
             looked = 0
             for setup, operations in by_setup(cam, report):
