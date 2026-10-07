@@ -30,18 +30,34 @@ mean](docs/what-the-notes-mean.md).
 
 ## Installing
 
-Copy `addin/loader/UTP` into Fusion's add-ins folder:
+On the machine, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/vystal/universal-tool-presets/main/tools/install.ps1 | iex
+```
+
+Once per machine, no admin rights, nothing written outside your own Fusion
+add-ins folder. Then start Fusion; UTP is in the Utilities tab of the
+Manufacture workspace.
+
+That installs three small files that never change. They fetch the add-in
+itself from the latest release and keep it up to date, so updating the shop
+afterwards means publishing a release rather than visiting every computer.
+Re-run the same line to pick up a change to the loader, which is the only part
+that does not update itself.
+
+It always runs from a local copy, so a machine with no connection runs what it
+already has. Updates take effect at the next Fusion start.
+
+By hand instead, if you would rather see what you are installing: copy
+`addin/loader/UTP` into
 
 ```
 %APPDATA%\Autodesk\Autodesk Fusion 360\API\AddIns\
 ```
 
-Once per machine. The loader fetches the add-in itself from the latest
-release and keeps it up to date, so updating the shop means publishing a
-release rather than visiting every computer.
-
-It always runs from a local cache, so a machine with no connection runs the
-copy it already has. Updates take effect at the next Fusion start.
+Either way you are trusting this repository, which is the same thing you trust
+by running the add-in at all: the loader fetches from it on every start.
 
 ## Releasing
 
