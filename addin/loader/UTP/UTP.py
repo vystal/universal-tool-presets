@@ -97,10 +97,18 @@ def _source():
     """
     path = os.path.join(_HERE, "source.json")
     try:
-        with open(path, encoding="utf-8") as handle:
+        # utf-8-sig, so a byte order mark does not stop a machine updating.
+        # Every ordinary way of editing this file on Windows leaves one:
+        # Notepad saving as UTF-8, PowerShell's Out-File -Encoding utf8, Set-
+        # Content. json.load refuses it, _source returns None, and the add-in
+        # then runs whatever is in the cache for ever -- with nothing to show
+        # for it but one line in a log nobody reads. Measured 7 October: a
+        # source.json written with Out-File had EF BB BF on the front and the
+        # machine quietly stayed a release behind.
+        with open(path, encoding="utf-8-sig") as handle:
             found = json.load(handle)
-    except Exception:
-        _note("source.json could not be read at %s" % path)
+    except Exception as exc:
+        _note("source.json could not be read at %s: %s" % (path, exc))
         return None
     if not found.get("repo") and not found.get("base"):
         _note("source.json names neither a repo nor a base")
