@@ -181,6 +181,39 @@ def missing(tool, library_tool):
             if not represented(tool, preset.id)]
 
 
+def oddly_named(tool):
+    """Copies the add-in made that carry neither suffix. Names only.
+
+    Every copy it makes is called "<name> v<N> (latest)" and every one it
+    retires becomes "<name> (until <date>)", so a copy of its own with neither
+    is a name that no path here produces -- a rename that stopped half way, or
+    something outside renaming it.
+
+    Worth saying rather than fixing, for two reasons. It sits in the dropdown
+    looking like a preset somebody made by hand, so nobody can tell it is the
+    add-in's. And removable sorts candidates by the version in their name, so a
+    suffixless copy carrying v23 outranks a properly retired one carrying none
+    -- the tidy would keep the anomaly and delete the copy whose date says what
+    an operation used to run. Found on the bench 8 October: "P Copper v23",
+    made by the add-in, no suffix, beside "P Copper (until 07 Oct 2026 12:55)".
+    """
+    odd = []
+    try:
+        for index in range(tool.presets.count):
+            preset = tool.presets.item(index)
+            if source_of(preset) is None:
+                continue
+            name = preset.name or ""
+            if name.endswith(config.LATEST_SUFFIX):
+                continue
+            if config.RETIRED_SUFFIX % "" in name or "(until " in name:
+                continue
+            odd.append(name)
+    except Exception:
+        return odd
+    return odd
+
+
 def removable(tool, library_tool, used_ids):
     """Copies the add-in made that nothing needs any more, oldest first.
 

@@ -922,3 +922,35 @@ def test_nothing_says_the_latest_suffix_alone_identifies_the_preset():
         assert "name in the note" in said, (
             "still telling somebody to pick by the (latest) suffix alone, and a "
             "tool with two UTPs has two of them")
+
+
+def test_a_copy_with_neither_suffix_is_noticed():
+    """Every copy the add-in makes ends "(latest)" and every one it retires ends
+    "(until <date>)". One of its own with neither is a name no path here
+    produces, and it matters twice: it sits in the dropdown looking hand-made,
+    and removable ranks candidates by the version in their name, so a suffixless
+    copy carrying v23 outranks a properly retired one carrying none -- the tidy
+    would keep the anomaly and delete the copy whose date says what an operation
+    used to run.
+
+    Found on the bench 8 October: "P Copper v23", made by the add-in, no suffix,
+    beside "P Copper (until 07 Oct 2026 12:55)".
+    """
+    def copy(name, held=True):
+        return FakePreset(name, held={config.KEY_SOURCE_PRESET: "lib-1"}
+                          if held else {})
+
+    tool = FakeTool([
+        copy("P Copper v3 (latest)"),
+        copy("P Copper (until 07 Oct 2026 12:55)"),
+        copy("P Copper v23"),                       # the anomaly
+        copy("P Copper", held=False),               # the tool's own, not ours
+    ])
+    found = presets.oddly_named(tool)
+    assert found == ["P Copper v23"], found
+
+    # And a tool whose copies are all properly named says nothing.
+    tidy = FakeTool([copy("P Copper v3 (latest)"),
+                     copy("P Copper (until 07 Oct 2026)"),
+                     copy("P Copper", held=False)])
+    assert presets.oddly_named(tidy) == []
