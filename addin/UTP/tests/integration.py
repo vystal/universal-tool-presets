@@ -1008,6 +1008,44 @@ def _whole_and_kept(bench):
 # 8 October and with it the only write this add-in ever made outside the
 # person's own document, so there is no longer a library write to race on.
 
+@check("a pass leaves nothing it would have tidied or renamed")
+def _pass_finishes_its_own_work(bench):
+    """After a pass, asking the deciding functions again must find nothing.
+
+    An invariant rather than a scenario, and it is the check this suite was
+    missing. Twice on 8 October the decisions were right and nothing carried
+    them out: a "continue" skipped the renaming whenever there was nothing to
+    tidy, and a "return" skipped both whenever no operation was behind -- which
+    is exactly the state somebody is in the moment they move onto the newer
+    preset. Both left removable() naming a spare copy on every pass with
+    nothing asking it.
+
+    So this does not describe what should happen. It presses the button and
+    then asks whether the add-in still has work it says it wants to do.
+    """
+    library.forget()
+    passes.run(bench.app)
+
+    report = diagnostics.Report("settled", keeping=False)
+    tools, ok = library.cached(report, adsk.doEvents)
+    if not ok:
+        return "SKIP", "the libraries could not be read"
+    used = passes._presets_in_use(bench.cam, report)
+    left = []
+    for key, tool in passes._document_tools(bench.cam).items():
+        library_tool = tools.get(key)
+        if library_tool is None:
+            continue
+        for row in presets.removable(tool, library_tool, used):
+            left.append("would still remove %s" % row[1])
+        for preset, wanted in presets.wanted_names(tool, library_tool, used):
+            left.append("would still rename %s to %s" % (preset.name, wanted))
+    if left:
+        return "FAIL", ("the pass finished with work it still says it wants "
+                        "to do: %s" % "; ".join(left[:6]))
+    return "PASS", "nothing left to remove or rename after a pass"
+
+
 @check("what the tidy may not delete is read from the operations, not the verdicts")
 def _in_use_from_operations(bench):
     """Where the tidy's protection comes from.

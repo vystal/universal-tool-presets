@@ -464,9 +464,13 @@ def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
 
     wrote = _sync_and_tidy(cam, in_use, used_ids, report, writing, tidying)
 
-    if not wanted:
-        return wrote
-
+    # "if not wanted: return" used to sit here, and it skipped the tidy and the
+    # naming below for the one case they exist to handle. Nothing is "wanted"
+    # precisely when every operation is already up to date -- which is what
+    # somebody moving onto the newer preset has just made true -- so the copy
+    # they moved OFF stayed in the dropdown for ever and the newer one kept
+    # its (latest) marker. Measured on the bench, 8 October, with removable()
+    # naming the spare copy on every pass and nothing asking it.
     allowed = writing and settings.on("presets")
     shelf = _document_tools(cam)
     for tool_id, library_preset in wanted.values():
