@@ -246,6 +246,99 @@ def _cam_of(document):
         return None
 
 
+def _bring_presets_in(document, looked_at, tools, why):
+    """Make the newer values pickable, then judge what moved again.
+
+    Returns (did anything, notes written, notes that failed).
+
+    Every operation looked at, not just the ones behind: somebody picking the
+    "(latest)" entry and pressing OK leaves nothing behind at all, so gating
+    this on behind-ness skipped it for the ordinary way the thing is used, and
+    the copy they had just moved off stayed in the dropdown until the button
+    was pressed.
+
+    Not gated on budget either. A sweep that ran out of budget is a sweep that
+    marked operations "update available", and this is the step that brings in
+    the thing they are told to pick -- so the gate was false in exactly the
+    case it mattered.
+    """
+    cam = _cam_of(document)
+    if cam is None:
+        return False, 0, 0
+    brought = False
+    wrote = failed = 0
+    try:
+        changed = dropdown.ensure_presets(cam, looked_at, tools, _Quiet(), True)
+        if not changed:
+            return False, 0, 0
+        # Set before the re-judge, so a failure in there still reports what
+        # was actually brought in rather than swallowing it with the error.
+        brought = True
+        # ensure_presets answers True or False, not a list. len() on it raised
+        # TypeError, the enclosing except caught it, and every open that
+        # actually brought a preset in was logged as "could not bring presets
+        # in" -- the opposite of what happened -- while the re-judge below,
+        # the entire reason for this block, never ran.
+        #
+        # update() leaves tool and preset references stale, so what changed is
+        # read and judged again rather than reused, as the button's pass does.
+        seen = {}
+        for operation in survey.operations_of(document):
+            verdict = state.reconcile(operation, tools, seen)
+            if verdict["state"] != state.BEHIND:
+                continue
+            would = marks.plan(operation, verdict)
+            if not would:
+                continue
+            try:
+                marks.apply(operation, would)
+                wrote += 1
+            except Exception:
+                failed += 1
+    except Exception as exc:
+        diagnostics.session_log("%s: could not bring presets in" % why,
+                                error=str(exc))
+    return brought, wrote, failed
+
+
+def _clear_old_setup_notes(document, why):
+    """Take off notes left on setups by a build that marked them."""
+    from . import passes
+
+    cam = _cam_of(document)
+    if cam is None:
+        return
+    try:
+        passes._clear_setup_marks(cam, _Quiet(), True)
+    except Exception as exc:
+        diagnostics.session_log("%s: setups not cleared" % why, error=str(exc))
+
+
+def _record_sweep(document, all_operations, cursor, looked, wrote):
+    """Where this pass got to, so the next one carries on. Returns what is left.
+
+    The cursor is why a job too big for one pass is finished by the next few
+    rather than starting over in each of them.
+    """
+    left = len(all_operations) - looked
+    _state.setdefault("save cursor", {})[_key(document)] = (
+        (cursor + looked) % len(all_operations) if all_operations else 0)
+    whole = looked >= len(all_operations)
+    _swept[_key(document)] = {
+        "complete": whole,
+        # Which reading of the shop libraries this was judged against. A
+        # complete sweep is only worth skipping while that reading is still
+        # the one in hand.
+        "reading": library.read_at(),
+        "said": ("swept at %s, %d operations, %d written"
+                 % (time.strftime("%H:%M:%S"), looked, wrote)) if whole else
+                ("partly swept at %s, %d of %d, %d left for next time"
+                 % (time.strftime("%H:%M:%S"), looked,
+                    len(all_operations), left)),
+    }
+    return left
+
+
 def mark_document(document, why, budget=-1, trigger="open"):
     """Bring a whole document up to date, as far as the budget allows.
 
@@ -256,7 +349,6 @@ def mark_document(document, why, budget=-1, trigger="open"):
     path in the add-in judged against a reading of any age.
     """
     with marks.holding():
-        from . import passes
         report = _Quiet()
         # Timed separately and reported, because it is the one part of a save
         # the budget below cannot cap: deciding anything at all needs the
@@ -350,87 +442,26 @@ def mark_document(document, why, budget=-1, trigger="open"):
         # operations with no v3 to pick. Only for the ones this save actually
         # looked at, and only if there is time left, because bringing a preset
         # in is a bigger write than a note.
-        # Not gated on budget left over, which it used to be. That gate was
-        # false by construction in exactly the case it mattered: a sweep that
-        # ran out of budget is a sweep that marked operations "v3 available",
-        # and this is the step that brings the v3 in for them to pick. So a
-        # part-swept document got the notes and not the presets -- the precise
-        # failure the step was written to prevent. It only ever runs for what
-        # this pass marked behind, which the budget already bounds.
-        # Every operation looked at, not just the behind ones, and the tidy
-        # runs too. Both were wrong for the same case: somebody picks the
-        # (latest) entry in the dropdown and presses OK, which leaves nothing
-        # behind at all -- so this block was skipped entirely and the copy
-        # they had just moved off stayed in the dropdown until somebody
-        # pressed the button. Reported 8 October, and it is the ordinary way
-        # the thing is used.
         if allowed:
-            cam = _cam_of(document)
-            if cam is not None:
-                try:
-                    changed = dropdown.ensure_presets(cam, looked_at, tools,
-                                                     _Quiet(), True)
-                    if changed:
-                        # _ensure_presets returns True or False, not a list.
-                        # len() on it raised TypeError, the enclosing except
-                        # caught it, and every open that actually brought a
-                        # preset in was logged as "could not bring presets in"
-                        # -- the opposite of what happened -- while the
-                        # re-judge below, the entire reason for this block,
-                        # never ran. Same fault the _Quiet docstring was
-                        # written about; that fix mended the fake report object
-                        # and left this call site.
-                        did.append("brought newer preset(s) into the document")
-                        # update() leaves tool and preset references stale, so
-                        # the ones that changed are read and judged again rather
-                        # than reused, as the button's pass does.
-                        seen = {}
-                        for operation in survey.operations_of(document):
-                            verdict = state.reconcile(operation, tools, seen)
-                            if verdict["state"] != state.BEHIND:
-                                continue
-                            would = marks.plan(operation, verdict)
-                            if would:
-                                try:
-                                    marks.apply(operation, would)
-                                    wrote += 1
-                                except Exception:
-                                    failed += 1
-                except Exception as exc:
-                    diagnostics.session_log(
-                        "%s: could not bring presets in" % why, error=str(exc))
+            brought, more, broke = _bring_presets_in(document, looked_at,
+                                                    tools, why)
+            if brought:
+                did.append("brought newer preset(s) into the document")
+            wrote += more
+            failed += broke
 
-        # The setups, but only when this save got all the way round. A setup
-        # note counts what is inside it, and a count taken from part of a
-        # document is a wrong number rather than an old one. Until now nothing
-        # but the button ever updated them, so somebody working with setups
-        # collapsed -- the person the setup note exists for -- was reading
-        # whatever was true when the button was last pressed, possibly never.
+        # Only on a whole sweep. Not because a partial one would be wrong --
+        # nothing is counted here any more, these notes are only taken off --
+        # but because it is work, and a sweep that ran out of budget has
+        # already spent it. The next one finishes the job.
+        #
+        # The comment that used to sit here was about writing setup notes and
+        # the count inside them, and it survived the removal of both. It made
+        # this gate look load-bearing when its reason had gone.
         if looked >= len(all_operations) and allowed:
-            cam = _cam_of(document)
-            if cam is not None:
-                try:
-                    passes._clear_setup_marks(cam, _Quiet(), True)
-                except Exception as exc:
-                    diagnostics.session_log("%s: setups not marked" % why,
-                                            error=str(exc))
+            _clear_old_setup_notes(document, why)
 
-        left = len(all_operations) - looked
-        _state.setdefault("save cursor", {})[_key(document)] = (
-            (cursor + looked) % len(all_operations) if all_operations else 0)
-        whole = looked >= len(all_operations)
-        _swept[_key(document)] = {
-            "complete": whole,
-            # Which reading of the shop libraries this was judged against. A
-            # complete sweep is only worth skipping while that reading is still
-            # the one in hand.
-            "reading": library.read_at(),
-            "said": ("swept at %s, %d operations, %d written"
-                     % (time.strftime("%H:%M:%S"), looked, wrote)) if whole else
-                    ("partly swept at %s, %d of %d, %d left for next time"
-                     % (time.strftime("%H:%M:%S"), looked,
-                        len(all_operations), left)),
-        }
+        left = _record_sweep(document, all_operations, cursor, looked, wrote)
         diagnostics.session_log(
             why, document=getattr(document, "name", "?"), verdicts=counts,
             looked_at=looked, of=len(all_operations),
