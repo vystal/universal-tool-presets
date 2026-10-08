@@ -11,8 +11,8 @@ import time
 import adsk.core
 import adsk.cam
 
-from . import (compat, config, diagnostics, library, marks, presets,
-               settings, state)
+from . import (compat, config, diagnostics, identity, library, marks,
+               presets, settings, state)
 
 
 def _users(vector):
@@ -222,6 +222,28 @@ def _verdicts(operations, tools, report, progress=None, resolve=None):
                 break
         elif progress is not None and progress.at(index + 1):
             break
+
+    # Said out loud, because the thing it describes is an administrative
+    # action somewhere else that quietly changes what this add-in can tell.
+    # C44: duplicating or re-importing a Hub library gives every tool in it a
+    # fresh guid, so each description ends up held twice and no operation can
+    # be tied to one of them. Nothing is un-marked over it any more, but
+    # nothing newer is offered either, and without this line the only sign is
+    # a count of operations that read as neither current nor behind.
+    confused = sorted({v.get("tool") for _op, v in found
+                       if str(v.get("matched by") or "").startswith(
+                           identity.AMBIGUOUS)})
+    if confused:
+        report.note("TWO SHOP TOOLS SHARE ONE DESCRIPTION",
+                    tools=confused[:10],
+                    consequence=("operations on them are left exactly as they "
+                                 "are: their notes stay, and nothing newer is "
+                                 "offered until it can be told which tool "
+                                 "they are on"),
+                    likely_cause=("a Hub library duplicated, re-imported or "
+                                  "rebuilt: storing a tool in a library gives "
+                                  "it a new id, so the same tool in two "
+                                  "libraries is two tools"))
     return found
 
 

@@ -27,6 +27,7 @@ be established by a person in front of Fusion, and a check that quietly tested
 something easier instead would be worse than no check.
 """
 
+import copy
 import gc
 import json
 import os
@@ -1044,6 +1045,64 @@ def _pass_finishes_its_own_work(bench):
         return "FAIL", ("the pass finished with work it still says it wants "
                         "to do: %s" % "; ".join(left[:6]))
     return "PASS", "nothing left to remove or rename after a pass"
+
+
+@check("a library duplicated at the shop does not un-mark this job")
+def _duplicated_library_keeps_the_marks(bench):
+    """C44, against this document's real operations and real library tools.
+
+    Storing a tool in a library gives it a fresh guid, so a Hub library
+    duplicated or re-imported makes every tool in it a second tool, and every
+    document already out there falls back to matching by description -- which
+    is then held twice. That read as "not a UTP tool", which takes the note
+    off: one administrative action could un-mark every job in the shop.
+
+    The duplicate is built here rather than made in the Hub. The code that
+    decides is identity.match over a dict of library tools, and what reaches
+    it from a real duplicated library is exactly this: two entries, different
+    ids, one description. Copying a shop library to find out would leave
+    litter in the Hub that somebody has to clear up.
+    """
+    report = diagnostics.Report("c44", keeping=False)
+    tools, ok = library.cached(report, adsk.doEvents)
+    if not ok:
+        return "SKIP", "the libraries could not be read"
+
+    operation, verdict = bench.a_tracked_operation()
+    if operation is None:
+        return "SKIP", "no tracked operation on the bench"
+    held = operation.notes or ""
+    if config.NOTE_PREFIX not in held:
+        return "SKIP", "that operation carries no note of ours to lose"
+
+    # What a re-import actually leaves: the id this document holds is not in
+    # any library any more, and the description it would fall back to is held
+    # by two tools -- the one in the old library and the one in the new.
+    #
+    # The first version of this built only ONE tool under a new id, which left
+    # the description unambiguous, so the fallback matched and the check
+    # failed saying "read as current". It was testing nothing; two is what
+    # makes it the scenario.
+    mine = tools.get(verdict.get("toolId"))
+    if mine is None:
+        return "SKIP", "could not find this operation's tool in the libraries"
+    twice = dict(tools)
+    twice.pop(verdict.get("toolId"), None)
+    for where in ("old-library", "re-imported"):
+        twin = copy.copy(mine)
+        twin.id = "%s-%s" % (where, mine.id)
+        twice[twin.id] = twin
+
+    answer = state.reconcile(operation, twice, {})
+    if answer["state"] != state.UNKNOWN or not answer.get("leave alone"):
+        return "FAIL", ("a duplicated library read as %r, which removes the "
+                        "note: %s" % (answer["state"], answer.get("why")))
+    if marks.plan(operation, answer):
+        return "FAIL", "it wanted to rewrite a note it could not reach a verdict on"
+    if (operation.notes or "") != held:
+        return "FAIL", "the note changed while nothing should have touched it"
+    return "PASS", ("two tools sharing one description leaves the note alone "
+                    "(%s)" % answer.get("why"))
 
 
 @check("what the tidy may not delete is read from the operations, not the verdicts")

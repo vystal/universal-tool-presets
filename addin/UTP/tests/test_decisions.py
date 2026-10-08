@@ -1064,3 +1064,51 @@ def test_only_one_copy_is_ever_the_newest():
     # And with nothing using the spare one, it is offered for removal.
     offered = presets.removable(tool, library_tool, {first.id})
     assert [row[2] for row in offered] == [second.id], offered
+
+
+def test_a_duplicated_library_does_not_un_mark_the_shop():
+    """C44, and the worst thing in docs/scenarios.md.
+
+    Storing a tool in a library gives it a fresh guid, so duplicating or
+    re-importing a Hub library makes every tool in it a different tool to
+    identity. Every document already out there falls back to matching by
+    description, and while the old library is still present each description
+    is held twice.
+
+    That read as "not a UTP tool", which removes the note -- so one
+    administrative action could take the marks off every job in the shop in an
+    afternoon, with nothing said before or after. It is a question that cannot
+    be answered, not an answer, and the rule for those is already written
+    down: leave what is there exactly as it is.
+    """
+    from utp import identity
+
+    class Tool:
+        description = "#9 - 6mm flat"
+
+    class LibraryTool:
+        def __init__(self, tool_id):
+            self.id = tool_id
+            self.description = "#9 - 6mm flat"
+            self.presets = {}
+
+    # The same tool, in the old library and in its freshly imported copy.
+    both = {"old-guid": LibraryTool("old-guid"),
+            "new-guid": LibraryTool("new-guid")}
+    _found, how, _id = identity.match(Tool(), both, tool_id="gone")
+    assert how.startswith(identity.AMBIGUOUS), how
+
+    operation = Owner(marks.note_line(verdict(state.BEHIND)) + "\nCHECK Z",
+                      ADOPTED, "Yellow")
+    operation.tool = Tool()
+    held = operation.notes
+
+    answer = state.reconcile(operation, both, {}, "gone")
+    assert answer["state"] == state.UNKNOWN, (
+        "a duplicated library read as a fact about the tool: %s" % answer)
+    assert answer.get("leave alone") is True
+
+    # And the note survives, which is the whole point.
+    assert marks.plan(operation, answer) in (None, {}, []), (
+        "it wanted to change a note it could not reach a verdict on")
+    assert operation.notes == held

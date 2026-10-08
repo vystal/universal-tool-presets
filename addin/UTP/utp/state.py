@@ -57,6 +57,24 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
     # Kept so nothing has to serialise the tool again to learn its id.
     verdict["toolId"] = found
     if library_tool is None:
+        if how.startswith(identity.AMBIGUOUS):
+            # Two tools in the shop libraries answer to this description, so
+            # which one this operation came from cannot be told. That is a
+            # question left unanswered, not an answer of "not a shop tool",
+            # and the difference is the whole of C44.
+            #
+            # Storing a tool in a library gives it a fresh guid, so duplicating
+            # or re-importing a Hub library makes every tool in it a different
+            # tool to identity. Every document already out there falls to the
+            # description fallback, and while the old library is still present
+            # each description is held twice. Treated as NOT_UTP that removed
+            # every note in every job in the shop off the back of one
+            # administrative action, with nothing said before or after.
+            verdict["state"] = UNKNOWN
+            verdict["leave alone"] = True
+            verdict["why"] = ("two shop tools share this description, so which "
+                              "one this operation is on cannot be told")
+            return verdict
         from . import library as _library
         if _library.incomplete():
             # A library would not open this time, so "not in any Hub library"

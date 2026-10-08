@@ -11,6 +11,12 @@ separately and never quietly treated as a success.
 
 from . import library
 
+# Said in one place so a caller can recognise it without matching on prose.
+# The difference matters: "no match" means this tool is not in any shop
+# library, which is a fact. Ambiguous means the question could not be
+# answered, which is not the same thing and must not be treated as one.
+AMBIGUOUS = "description is ambiguous"
+
 
 def match(tool, library_tools, tool_id=None):
     """Returns (LibraryTool or None, how it was found, the tool's own id).
@@ -35,6 +41,6 @@ def match(tool, library_tools, tool_id=None):
             return hits[0], "description", found
         if len(hits) > 1:
             return (None,
-                    "description is ambiguous (%d tools share it)" % len(hits),
+                    "%s (%d tools share it)" % (AMBIGUOUS, len(hits)),
                     found)
     return None, "no match", found
