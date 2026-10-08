@@ -26,7 +26,13 @@ def _where():
 class Report:
     """One pass over one document."""
 
-    def __init__(self, document_name):
+    def __init__(self, document_name, keeping=True):
+        # keeping=False still collects everything in memory -- the counts and
+        # the summary a pass returns come from here -- but writes no files.
+        # Asked for on 8 October: a report every time somebody presses the
+        # button fills a folder nobody reads, so it is a switch now and off
+        # by default. Write a debug report still gathers what matters.
+        self.keeping = keeping
         self.document_name = document_name
         self.started = datetime.datetime.now()
         stamp = self.started.strftime("%Y%m%d-%H%M%S")
@@ -48,12 +54,14 @@ class Report:
         # must not report that writing was allowed just because the switch
         # says it usually is.
         self.writing = None
-        try:
-            os.makedirs(self.dir, exist_ok=True)
-            self.stream = open(self.base + ".jsonl", "a", encoding="utf-8")
-        except Exception:
-            # A report that cannot be written must not stop the pass.
-            self.stream = None
+        self.stream = None
+        if keeping:
+            try:
+                os.makedirs(self.dir, exist_ok=True)
+                self.stream = open(self.base + ".jsonl", "a", encoding="utf-8")
+            except Exception:
+                # A report that cannot be written must not stop the pass.
+                self.stream = None
 
     # -- writing --------------------------------------------------------
 
@@ -108,6 +116,8 @@ class Report:
                 self.stream.close()
             except Exception:
                 pass
+        if not self.keeping:
+            return None
         path = self.base + ".md"
         try:
             with open(path, "w", encoding="utf-8") as handle:

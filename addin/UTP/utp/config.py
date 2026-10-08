@@ -109,24 +109,10 @@ MAY_ADD_PRESETS = True
 # Remove copies the add-in made that nothing uses any more. The only thing
 # here that deletes anything, so it is narrow: never a preset an operation
 # points at, never one somebody made or that arrived with the tool, and the
-# most recently retired copy is kept because the library holds only today's
-# values and that copy is the last record of what an operation used to run.
+# Nothing an operation points at is ever offered for removal, which is the one
+# rule here that is never bent: removing such a preset would re-point that
+# operation at different values, and that is wrong feeds at the machine.
 MAY_TIDY_PRESETS = True
-# Only the default now. The switch somebody can reach is "Number the shop
-# library" in the Switches dialog.
-#
-# It needed reaching. It is the one write in here that leaves the person's own
-# document: version numbers go into the shop's shared library, and
-# updateToolLibrary writes the whole library back from a shelf read earlier in
-# the same pass, so two machines overlapping could have the second undo a feed
-# change somebody made in between. One machine today, so no race today, but it
-# is the only thing here with no undo and the only control for it was editing
-# this file on every machine.
-#
-# Left on, because it has been running for weeks and it is what lets a note say
-# "v2, v3 available" rather than just "something newer". Turn it off and the
-# notes still say when something is newer; they cannot name which version.
-MAY_BUMP_LIBRARY_VERSIONS = True
 
 # Marking happens when the Save command starts, not while the save is under
 # way. documentSaving fires once Fusion has already taken its snapshot, so
@@ -297,7 +283,18 @@ WRITES_PER_CHUNK = 1
 # session log every twenty operations meanwhile, which gets in nobody's way
 # but has to be looked at. Turn this on for a bar with a cancel button when
 # a particular file is worth waiting on.
-SHOW_PROGRESS = False
+# On for a button press, which is where it was asked for on 8 October: that
+# pass does the whole document in one go, reads the shop libraries if they are
+# stale, and somebody is standing there waiting for it. The automatic passes
+# stay silent -- a dialog that puts itself up while somebody is working is the
+# opposite of what they are for.
+SHOW_PROGRESS = True
+
+# The summary box after Update presets, and the report file it writes. Both
+# off: the notes on the operations are the answer, and a folder filling with
+# reports nobody reads is clutter. Switches turns either back on.
+SHOW_SUMMARY = False
+WRITE_A_REPORT = False
 
 # How long marking may hold up a save, in seconds.
 #
@@ -327,11 +324,16 @@ SHOW_PROGRESS = False
 PASS_SECONDS = 2.0
 
 
-# Below this many operations a pass is quick enough that a progress bar is
-# only a flicker, so it is not shown even when the switch is on.
-PROGRESS_FROM = 40
-PROGRESS_MESSAGE = "Checking operation %v of %m"
-PROGRESS_MARKING = "Marking operation %v of %m"
+# What the busy bar in the corner says at each stage of a button press.
+#
+# Plain sentences, no "%v of %m": those are for a progress bar with a known
+# total, and this is Fusion's busy bar, which has no meter to put a number
+# against. It is also why there is no threshold any more -- a bar in the
+# corner is not in anybody's way on a small job the way a dialog was.
+PROGRESS_READING = "UTP: reading the shop libraries"
+PROGRESS_MESSAGE = "UTP: checking this document"
+PROGRESS_PRESETS = "UTP: bringing in presets"
+PROGRESS_MARKING = "UTP: marking operations"
 
 # ---------------------------------------------------------------------------
 # Where the report goes
@@ -418,8 +420,6 @@ NOTE_SUFFIX = "`"
 # old shape can be trusted.
 NOTE_PREFIX_WAS = "[UTP] "
 
-# How a version is shown wherever one appears: in a note and in the dropdown.
-VERSION_LABEL = "%s v%s"
 
 # Plain ASCII, because this goes into the NC as well. A middle dot read nicely
 # on screen and arrived at the control as whatever its codepage made of it.
@@ -540,14 +540,16 @@ MARKED = "Marked %d of %d operations."
 # and attributes are not in Fusion's undo stack, so telling somebody Ctrl+Z is
 # the way back was telling them something untrue about the one thing they would
 # reach for. Remove all notes is the way back, and it is tested.
-MARKED_TAIL = ("Nothing was saved, so closing without saving leaves the job as "
-               "it was. Remove all notes takes it all back out again.")
+MARKED_TAIL = "Nothing saved yet. Remove all notes undoes it."
+# Said when the pass ran and every note already read right, because "Marked 0
+# of 8" next to "3 behind" reads like a failure when it is the opposite: the
+# three behind are behind, their notes say so, and nothing needed rewriting.
+MARKED_NOTHING = "Checked %d operations. Every note already read right."
 CHECKED = "Checked %d operations. Nothing was changed."
 CHECKED_TAIL = ("Writing is off. %d operations would have been marked; the "
                 "report says exactly how.")
 STOOD_DOWN_TAIL = ("%d operations were still worked out; the report says what "
                    "it found.")
-EVENTS_SEEN = "%d events recorded this session:\n%s"
 NOTHING_TO_CHECK = "Nothing to check: no Manufacture data here."
 NO_LIBRARY = "The Hub library could not be read, so nothing was decided."
 STOPPED_EARLY = "The check stopped early; see the report."
@@ -564,29 +566,25 @@ NEWER_ADDIN = ("this file was written by a newer UTP add-in (schema %d, this "
 # The button
 # ---------------------------------------------------------------------------
 
-UNMARKED = ("Removed the UTP notes from %d of %d operations and setups.\n\n"
-            "Press Check this document to work them out again. Presets were "
-            "left alone, because an operation may be using one.\n\nOpening or "
-            "checking this document works the notes out again, except for any "
-            "that read grey Custom: the record that made them Custom has gone "
-            "with the rest, so they will read as never tracked. To stop the "
-            "notes coming back at all, turn the add-in off under Switches.")
+UNMARKED = ("Removed the UTP notes from %d of %d operations.\n\nPresets were "
+            "left alone. Opening the job or pressing Update presets works the "
+            "notes out again, except grey Custom ones, which will read as "
+            "never tracked. To keep them off, turn the add-in off under "
+            "Switches.")
 READ_ONLY = "This file is read-only, so nothing was changed."
 UNMARK_CONFIRM = ("Remove every UTP note and colour from this "
-                  "document?\n\nPresets are left alone, and nothing is saved. "
-                  "Check this document works most of them out again.\n\nNot the "
-                  "grey Custom ones. An operation reads as Custom because of a "
-                  "hidden record saying which shop preset it was put on, and "
-                  "that record is part of what this removes. Those operations "
-                  "will read as never tracked afterwards, and the only way back "
-                  "is to pick their preset again.")
+                  "document?\n\nPresets are left alone and nothing is saved. "
+                  "Update presets works most of them out again.\n\nNot the grey "
+                  "Custom ones: what makes an operation Custom is a hidden "
+                  "record of the preset it was put on, and that goes too. The "
+                  "only way back for those is to pick their preset again.")
 
 # ---------------------------------------------------------------------------
 # The buttons
 # ---------------------------------------------------------------------------
 
 COMMAND_ID = "UTPCheckDocument"
-COMMAND_NAME = "Check this document"
+COMMAND_NAME = "Update presets"
 # "Changes nothing" was left on this from when the add-in genuinely changed
 # nothing. It is the first button in the panel, it is named the obvious thing,
 # it runs without a confirmation, and it writes notes, colours and records to
@@ -598,8 +596,8 @@ COMMAND_TOOLTIP = ("Brings this document up to date: notes and colours on every 
                    "operation, and the newer presets added to its dropdowns. "
                    "Writes version numbers to the shop library too, unless you "
                    "turn that off under Switches. Nothing is saved, and Remove "
-                   "all notes takes the document side back out. Use Check "
-                   "without changing anything to look first.")
+                   "all notes takes the document side back out. Use Check only "
+                   "to look first.")
 
 UNMARK_COMMAND_ID = "UTPRemoveMarks"
 UNMARK_COMMAND_NAME = "Remove all notes"
@@ -624,27 +622,19 @@ DEBUG_COMMAND_TOOLTIP = ("Writes down everything worth knowing about this "
 PANEL_ID = "UTPPanel"
 PANEL_NAME = "UTP"
 
-# The tab to put that panel on, matched on id or name containing this.
-PREFERRED_TAB = "utilit"
+# The tab to put that panel on, and the panel to sit in front of. Asked for
+# on 8 October: between Setup and 2D in the Milling tab. Enumerated from this
+# Fusion rather than guessed -- the Milling tab's panels run CAMJobPanel
+# (Setup), CAM2DPanel (2D), CAM3DPanel, ... -- so inserting before the 2D
+# panel is what puts it after Setup.
+PREFERRED_TAB_ID = "MillingTab"
+PREFERRED_BEFORE_PANEL = "CAM2DPanel"
 
 DRY_COMMAND_ID = "UTPCheckOnly"
-DRY_COMMAND_NAME = "Check without changing anything"
+DRY_COMMAND_NAME = "Check only"
 DRY_COMMAND_TOOLTIP = ("Works out what it would do and writes none of it. "
                        "For looking at a job before letting anything near it.")
 
-REFRESH_COMMAND_ID = "UTPRefresh"
-REFRESH_COMMAND_NAME = "Pick up library changes"
-REFRESH_COMMAND_TOOLTIP = ("Reads the Hub libraries again and brings this "
-                           "document up to date with them. For when somebody "
-                           "has changed a preset while Fusion was open.")
-# "%d presets" is the count of presets somebody in the shop made, which is the
-# only kind this add-in tracks. Said plainly, because on these libraries it
-# reads 17 out of 441 -- the other 424 are the "Default preset" Fusion makes by
-# itself -- and a bare "17 presets" against a library somebody knows holds
-# hundreds reads as a fault rather than a filter.
-REFRESHED = ("Read %d tools from %d libraries, %d of their presets made by "
-             "the shop.\n\nBrought this document up to date with them: "
-             "%d change(s).")
 
 FOLDER_COMMAND_ID = "UTPFolder"
 FOLDER_COMMAND_NAME = "Open the reports folder"

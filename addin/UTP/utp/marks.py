@@ -15,10 +15,9 @@ import time
 from . import config, settings, state
 
 
-def _named(verdict, version):
-    """The UTP's name, with a version when one is known."""
-    name = verdict.get("preset") or "?"
-    return config.VERSION_LABEL % (name, version) if version else name
+def _named(verdict):
+    """The UTP's name, as a note says it."""
+    return verdict.get("preset") or "?"
 
 
 def ours(words):
@@ -33,12 +32,17 @@ def ours(words):
 def note_line(verdict):
     """The one line the add-in owns, or None if it should not be there.
 
-    Version numbers are used when the library has them and left out when it
-    does not, so a library nobody has stamped still gets useful notes.
+    No version numbers. They were a label this add-in stamped into the shop
+    library and they never decided anything -- behind or current is settled by
+    comparing values -- but getting the label right turned out to be its own
+    running problem: "v1 - v1 available", a copy stamped v3 beside a library
+    preset at v1, and two copies of one preset whose names could not be told
+    apart. A note now says what the preset is and whether something newer
+    exists, which is the whole of what anybody acted on.
     """
     kind = verdict["state"]
     if kind == state.CURRENT:
-        said = _named(verdict, verdict.get("libraryVersion"))
+        said = _named(verdict)
         if verdict.get("carriesShape"):
             # On the shop's current values, and on a preset that decides the
             # depth of cut. Green with nothing else said would mean "nothing to
@@ -54,41 +58,10 @@ def note_line(verdict):
             # too. Saying "update available" here sends somebody to a dropdown
             # that cannot help, and a yellow note that cannot be acted on is how
             # people learn to stop reading yellow ones.
-            return ours("%s %s %s" % (_named(verdict,
-                                             verdict.get("documentVersion")),
-                                      config.NOTE_SEPARATOR,
+            return ours("%s %s %s" % (_named(verdict), config.NOTE_SEPARATOR,
                                       config.NOTE_COPY_CANNOT_HOLD))
-        newer = verdict.get("libraryVersion")
-        if newer is not None:
-            # Only ever named when it is a number, and strictly higher than the
-            # one the operation already holds.
-            #
-            # Two reports from real use, a day apart: "v1 - v1 available", and
-            # then "v3 - v1 available" -- update to the version you have, and
-            # update backwards. A version only means anything within one
-            # preset's own line of descent: a copy's number describes the
-            # library preset it was taken from, so the moment an operation
-            # resolves to a DIFFERENT library preset -- a tool removed, renamed,
-            # re-imported, or one of several carrying the same description --
-            # the two numbers come from separate sequences and comparing them
-            # is meaningless. Measured 8 October, after ten tools were deleted
-            # from a library: a copy stamped v3 beside a library preset at v1.
-            #
-            # So the number is offered only when it can be read as a number and
-            # is genuinely ahead. The operation IS behind, by values, so the
-            # note still says an update is available; it stops claiming to know
-            # which version would fix it.
-            ahead = _as_number(newer)
-            holding = _as_number(verdict.get("documentVersion"))
-            if holding is not None and (ahead is None or ahead <= holding):
-                newer = None
-        # "v2 - v3 available" when both are known. When the document's own
-        # version is not, saying which version is newer is still worth more
-        # than saying nothing, so only the second half is dropped.
-        said = "%s %s %s" % (
-            _named(verdict, verdict.get("documentVersion")),
-            config.NOTE_SEPARATOR,
-            ("v%s available" % newer) if newer else config.NOTE_UPDATE)
+        said = "%s %s %s" % (_named(verdict), config.NOTE_SEPARATOR,
+                             config.NOTE_UPDATE)
         if verdict.get("changesTheCut"):
             # The one case where picking the newer preset is not just a feed
             # change. Worth the longer note: a toolpath left ungenerated posts
@@ -181,19 +154,6 @@ _last_cleared = {"id": None}
 def _id_of(owner):
     try:
         return owner.operationId
-    except Exception:
-        return None
-
-
-def _as_number(value):
-    """A version as a number, or None if it will not read as one.
-
-    Versions reach here as whatever was written into the attribute, which is
-    text, and the two sides are read by different functions -- so they arrive as
-    strings and must not be compared as strings. "10" is less than "9" that way.
-    """
-    try:
-        return int(str(value).strip())
     except Exception:
         return None
 

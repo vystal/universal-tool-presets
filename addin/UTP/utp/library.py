@@ -35,7 +35,7 @@ import time
 
 import adsk.cam
 
-from . import config, values, versions
+from . import config, values
 
 
 class LibraryPreset:
@@ -44,44 +44,23 @@ class LibraryPreset:
         self.name = preset.name
         self.tool_id = tool_id
         self.library = library_path
-        # Kept so a version can be written back. The path is only a label.
+        # The path is only a label; the url is what a library is opened by.
         self.library_url = library_url
         self.values = values.scalars(preset)
-        # Identity is the preset's own id, so nothing is stored for it. The
-        # version is a label and may simply not be there.
+        # Identity is the preset's own id, so nothing is stored for it.
         #
-        # It is also only reported when it still describes what the preset
-        # holds. A number goes stale whenever the values move and the bump
-        # does not land, which happens if a library refuses the write, and a
-        # stale number gets put on a copy of values it does not describe:
-        # measured, two presets both labelled v1 holding different feeds.
-        # Withheld, everything falls back to naming by date and saying
-        # "update available", which is vaguer and never wrong.
-        stated = _attribute(preset, config.KEY_VERSION)
-        self.version = stated if self._describes(preset, stated,
-                                                 self.values) else None
-
-    @staticmethod
-    def _describes(preset, stated, held):
-        """Whether a stated version still describes the values held.
-
-        Given the values rather than reading them again: every preset in
-        every library was being read twice, once for `values` and once here,
-        which was half the cost of reading the libraries at all.
-        """
-        if not stated:
-            return False
-        snapshot = versions.stored_snapshot(preset)
-        if snapshot is None:
-            return False
-        return not (values.differences(held, snapshot)
-                    or set(held) != set(snapshot))
+        # There used to be a version here, read from a stamp this add-in wrote
+        # into the shop library. The whole of it is gone: whether an operation
+        # is behind has always been decided by comparing values, never by a
+        # number, and the numbers themselves produced one wrong name after
+        # another -- "v1 - v1 available", a copy stamped v3 beside a library
+        # at v1, and finally two names for one preset that told nobody which
+        # was newer. A preset is now either what the library holds or it is
+        # not, which is the only question anybody asked.
 
     @property
     def label(self):
-        """What a note would call this UTP: its version if it has one."""
-        if self.version:
-            return "%s v%s" % (self.name, self.version)
+        """What a note calls this UTP."""
         return self.name
 
 

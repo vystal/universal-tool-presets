@@ -5,8 +5,10 @@ so a plain-text sheet with aligned columns came out as a wall. A page opens
 in the browser, reads properly, prints, and can be sent to somebody who does
 not have Fusion open.
 
-The words live in config, so they stay in the one file everything readable
-lives in; this only decides how they are laid out.
+Written for somebody standing at a machine who wants to know what a coloured
+note means and what to press. It was twice this length and most of that was
+explaining why things are the way they are -- which belongs in the code, and
+in this file's own comments, not in front of a machinist.
 """
 
 import os
@@ -21,16 +23,15 @@ _PAGE = """<!doctype html>
 <style>
   :root {{ color-scheme: light dark; }}
   body {{
-    font: 16px/1.6 "Segoe UI", system-ui, sans-serif;
-    max-width: 44rem; margin: 3rem auto; padding: 0 1.5rem;
+    font: 16px/1.55 "Segoe UI", system-ui, sans-serif;
+    max-width: 40rem; margin: 2.5rem auto; padding: 0 1.5rem;
     background: #fbfbfc; color: #1b1b1d;
   }}
-  h1 {{ font-size: 1.6rem; margin: 0 0 .3rem; }}
-  h2 {{ font-size: 1.1rem; margin: 2.4rem 0 .6rem; }}
-  p, li {{ margin: .6rem 0; }}
-  .lede {{ color: #5a5a62; margin-bottom: 2rem; }}
-  table {{ border-collapse: collapse; margin: 1rem 0; width: 100%; }}
-  td {{ padding: .5rem .6rem; border-top: 1px solid #e3e3e8;
+  h1 {{ font-size: 1.5rem; margin: 0 0 1.6rem; }}
+  h2 {{ font-size: 1.05rem; margin: 2rem 0 .5rem; }}
+  p, li {{ margin: .5rem 0; }}
+  table {{ border-collapse: collapse; margin: .8rem 0; width: 100%; }}
+  td {{ padding: .45rem .6rem; border-top: 1px solid #e3e3e8;
         vertical-align: top; }}
   td.note {{ font-family: Consolas, ui-monospace, monospace;
              white-space: nowrap; }}
@@ -40,127 +41,105 @@ _PAGE = """<!doctype html>
   .grey {{ background: #9a9aa2; }} .none {{ background: transparent;
           border: 1px solid #c6c6cf; }}
   .do {{ background: #eef5ee; border-left: 3px solid #3f9c4a;
-         padding: .8rem 1rem; margin: 1.2rem 0; }}
-  footer {{ margin-top: 3rem; color: #76767f; font-size: .85rem; }}
+         padding: .7rem 1rem; margin: 1rem 0; }}
+  .warn {{ background: #fdf4e6; border-left: 3px solid #d9a521;
+           padding: .7rem 1rem; margin: 1rem 0; }}
+  footer {{ margin-top: 2.5rem; color: #76767f; font-size: .85rem; }}
   @media (prefers-color-scheme: dark) {{
     body {{ background: #1c1c1f; color: #e8e8ea; }}
-    .lede, footer {{ color: #9a9aa2; }}
+    footer {{ color: #9a9aa2; }}
     td {{ border-top-color: #34343a; }}
-    .do {{ background: #1e2a20; }}
+    .do {{ background: #1e2a20; }} .warn {{ background: #2b2518; }}
   }}
 </style>
 
 <h1>Universal Tool Presets</h1>
-<p class="lede">What the notes on your operations mean, and what to do
-about them.</p>
 
-<h2>What this does</h2>
-<p>Your tools' feeds and speeds live in the shop libraries. When somebody
-changes them there, documents already made know nothing about it. This marks
-each operation with where it stands, so you can see it and update it.</p>
-<p><strong>If a note says "changes the cut"</strong>, the newer preset moves a
-depth of cut or a stepover, not just a feed. Pick it as usual, then
-<strong>regenerate the operation before posting</strong> &mdash; otherwise the
-toolpath keeps the old shape while the numbers are new, and the file looks
-ready when it is not. Most presets carry only feeds, speeds and coolant and
-will never say this.</p>
+<p>Feeds and speeds live in the shop libraries. A document made before
+somebody changed them knows nothing about it. UTP puts a note on each
+operation saying where it stands.</p>
+<p><strong>It never changes an operation's feeds. Only you do, by picking a
+preset.</strong></p>
 
-<p><strong>It never changes an operation's feeds.</strong> Only you do that,
-by picking a preset.</p>
-
-<h2>The notes on your operations</h2>
+<h2>What the notes mean</h2>
 <table>
-  <tr><td class="note"><span class="dot green"></span>`UTP Titanium v3`</td>
-      <td>On the current feeds. Nothing to do.</td></tr>
-  <tr><td class="note"><span class="dot yellow"></span>`UTP Titanium v2
-      - v3 available`</td>
-      <td>Something newer exists in the shop library.</td></tr>
+  <tr><td class="note"><span class="dot green"></span>`UTP Titanium`</td>
+      <td>Up to date. Nothing to do.</td></tr>
+  <tr><td class="note"><span class="dot yellow"></span>`UTP Titanium
+      - update available`</td>
+      <td>The shop library has something newer.</td></tr>
   <tr><td class="note"><span class="dot grey"></span>`UTP Custom`</td>
-      <td>Its feeds were changed in this document on purpose.</td></tr>
+      <td>Its feeds were changed here on purpose.</td></tr>
   <tr><td class="note"><span class="dot none"></span>no note</td>
-      <td>Never put on a shop preset, or its tool is not a shop tool.</td></tr>
+      <td>Not on a shop preset, or not a shop tool.</td></tr>
 </table>
 
 <div class="do">
   <strong>To update a yellow one:</strong> open the operation, go to the tool
-  preset dropdown, and pick the entry that <strong>starts with the name in
-  the note</strong> and ends <strong>(latest)</strong>. A tool used for two
-  materials has a <em>(latest)</em> for each of them, so "the one ending
-  (latest)" is not enough to go on: the note says <code>`UTP P Copper v3 -
-  v4 available`</code>, so the entry to pick is the P Copper one. The note
-  turns green. Ctrl+Z puts the preset back.
+  preset dropdown, and pick the entry that <strong>starts with the name in the
+  note</strong> and ends <strong>(latest)</strong>. The note turns green.
+  Ctrl+Z puts the preset back.
+  <p style="margin:.5rem 0 0">A tool used for two materials has a
+  <em>(latest)</em> for each, so match the name: for
+  <code>`UTP P Copper - update available`</code> pick the P Copper one.</p>
+  <p style="margin:.5rem 0 0">Once you have moved, the old entry disappears by
+  itself and the new one loses its <em>(latest)</em>, so the dropdown goes back
+  to one entry per preset.</p>
 </div>
 
-<p>If you would rather leave it, leave it. Nothing will chase you, and
-nothing is blocked.</p>
+<div class="warn">
+  <strong>If a note says "changes the cut"</strong>, the newer preset moves a
+  depth of cut or a stepover, not just a feed. Pick it, then
+  <strong>regenerate the operation before posting</strong> &mdash; picking a
+  preset does not rebuild the toolpath, and Fusion will not tell you. Most
+  presets never say this.
+</div>
 
-<h2>Setups, folders and patterns are not marked</h2>
-<p>Only operations carry notes. Setups used to carry a count of what was inside
-them, and that was dropped: folders and patterns hide their operations in
-exactly the same way and never had one, so it was cover you could not rely on,
-which is worse than none. Any old setup notes are taken off the next time a job
-is checked.</p>
-<p>So to see where a job stands, look at the operations. If you work with
-everything folded up, open it or press <em>Check this document</em> and read
-the report.</p>
+<p>If you would rather leave a yellow one, leave it. Nothing is blocked.</p>
 
-<h2>When it runs</h2>
-<p>When you open a job, when you go into the Manufacture workspace, and when
-you change an operation. Nothing in the background.</p>
-<p>A big job may not be finished in one go &mdash; each of those moments is
-capped at about two seconds so nothing ever hangs, and it carries on from where
-it stopped at the next one. Once a job is up to date it is skipped entirely, so
-switching workspaces in a finished job costs nothing. If you would rather not
-wait, <em>Check this document</em> does the whole thing in one go.</p>
-<p><strong>Saving writes nothing at all.</strong> It used to bring the whole
-document up to date first, which left the file needing a second save every
-time &mdash; so the catching up happens as a job opens instead, where nothing
-is waiting on it and there is no save for it to land after.</p>
-<p>It reads the shop libraries when you first go into the Manufacture
-workspace, and again if that reading is more than fifteen minutes old. That
-read takes a few seconds and it is the only real pause this adds. Everything
-else uses what it already has.</p>
-<p><strong>If somebody changes a preset in the shop library while you are
-working</strong>, press <em>Pick up library changes</em>. That reads the
-libraries again and brings the job in front of you up to date with them.</p>
+<h2>The buttons</h2>
+<table>
+  <tr><td><strong>Update presets</strong></td>
+      <td>Does the whole job at once: notes, colours, and the newer presets
+          added to the dropdowns.</td></tr>
+  <tr><td><strong>Check only</strong></td>
+      <td>Works out what it would do and writes none of it.</td></tr>
+  <tr><td><strong>Remove all notes</strong></td>
+      <td>Takes every note and colour out. Presets are left alone.</td></tr>
+  <tr><td><strong>Switches</strong></td>
+      <td>What it is allowed to do, on this machine. Off means off.</td></tr>
+  <tr><td><strong>Open the reports folder</strong></td>
+      <td>Every check writes a report of what it found.</td></tr>
+  <tr><td><strong>Write a debug report</strong></td>
+      <td>One file to send on if something looks wrong.</td></tr>
+</table>
 
-<h2>Turning it off</h2>
-<p>Press <em>Switches</em> in the UTP panel. There is a checkbox for each of
-the two times it runs, one for the notes themselves, two for the presets, and
-one at the top for the whole add-in. Off means off: nothing happens on its
-own, and the buttons that change things say so instead of doing it.</p>
-<p>Those are for your machine, not for the document, and they stay how you
-set them until you change them.</p>
-
-<h2>If you do not want a particular note</h2>
-<p><strong>Clear its text.</strong> Nothing will put it back while you are
-still editing, so you can get it out of your way.</p>
-<p>It does come back next time you open the job, and that is on purpose: a note
-says where the operation stands, so opening works it out again like everything
-else. To stop the notes altogether, use <em>Switches</em>.</p>
-<p><em>Remove all notes</em> takes every note and colour out of the whole
-document at once. Same thing applies: opening or checking works them out
-again, so turn the notes off under <em>Switches</em> first if you want them
-to stay gone.</p>
+<h2>When it runs on its own</h2>
+<p>When you open a job, when you enter Manufacture, and when you change an
+operation. Never in the background, and saving writes nothing.</p>
+<p>Each of those is capped at about two seconds, so a big job may finish over
+several of them. <em>Update presets</em> does it all in one go.</p>
+<p>The shop libraries are read when you first enter Manufacture, and again
+when that reading is over fifteen minutes old. That read is the only real
+pause this adds.</p>
 
 <h2>Worth knowing</h2>
 <ul>
-  <li><strong>Your own notes are kept.</strong> It owns one line, the one
-      wrapped in <code>`</code> marks. Write what you like above it or below
-      it, in any words you like, and it stays exactly as you typed it, blank
-      lines and all. The backtick is there because it is a character nobody
-      types, so the add-in never has to guess which line is its own.</li>
+  <li><strong>Only operations are marked.</strong> Not setups, folders or
+      patterns. To see where a folded-up job stands, press
+      <em>Update presets</em> and read the report.</li>
+  <li><strong>Your own text is kept.</strong> UTP owns one line &mdash; the
+      one wrapped in <code>`</code> marks. Write anything you like above or
+      below it.</li>
   <li><strong>Your own icon colours are kept</strong> and put back if the
-      marks are removed.</li>
-  <li><strong>Older jobs stay silent.</strong> Nothing is marked until
-      somebody puts an operation on a shop preset.</li>
-  <li>Every check writes a report saying what it found.
-      <em>Open the reports folder</em> in the UTP panel.</li>
-  <li>If something looks wrong, <em>Write a debug report</em> makes one file
-      to send on.</li>
+      notes are removed.</li>
+  <li><strong>Clear a note's text</strong> to get it out of your way. It comes
+      back next time the job opens; to stop that, use <em>Switches</em>.</li>
+  <li><strong>Older jobs stay silent</strong> until somebody puts an operation
+      on a shop preset.</li>
 </ul>
 
-<footer>UTP {version}, in the Utilities tab of the Manufacture workspace.</footer>
+<footer>UTP {version} &mdash; Milling tab, between Setup and 2D.</footer>
 """
 
 

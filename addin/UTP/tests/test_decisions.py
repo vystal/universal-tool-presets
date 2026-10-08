@@ -105,7 +105,7 @@ ADOPTED = {"s": config.SCHEMA, config.KEY_ADOPTED_PRESET: "p1",
 
 def verdict(kind, **extra):
     base = {"state": kind, "preset": "Titanium", "presetId": "p1",
-            "operationId": "o1", "documentVersion": 2, "libraryVersion": 3,
+            "operationId": "o1",
             "record": None}
     base.update(extra)
     return base
@@ -324,11 +324,16 @@ def test_fusions_own_preset_is_not_a_shop_preset():
     assert not config.is_a_utp("  default PRESET ")
     # and a copy the add-in made of one before this rule existed, which is
     # what state.reconcile strips before asking
-    for made in ("Default preset v1 (latest)", "Default preset v12", 
-                 "Default preset (latest)"):
+    for made in ("Default preset (latest)", "Default preset (previous)",
+                 "Default preset (previous 2)"):
         assert not config.is_a_utp(presets.without_suffix(made)), made
     # a real one keeps its identity through the same stripping
-    assert config.is_a_utp(presets.without_suffix("P Titanium v3 (latest)"))
+    assert config.is_a_utp(presets.without_suffix("P Titanium (latest)"))
+    # and a shop preset whose own name ends in a version keeps all of it.
+    # without_suffix used to strip " v23" and these libraries really do hold
+    # presets called "P Copper v23", so the copy came out as "P Copper".
+    assert presets.without_suffix("P Copper v23") == "P Copper v23"
+    assert presets.without_suffix("P Copper v23 (latest)") == "P Copper v23"
 
 
 # ---------------------------------------------------------------------------
@@ -379,23 +384,6 @@ def test_a_file_from_an_older_version_keeps_this_versions_defaults():
 
 # ---------------------------------------------------------------------------
 # Naming presets in the dropdown
-# ---------------------------------------------------------------------------
-
-def test_the_newest_copy_says_so_and_the_retired_one_does_not():
-    latest = presets.latest_name("P Titanium", 3)
-    assert latest.endswith(config.LATEST_SUFFIX)
-    assert "v3" in latest
-    assert config.LATEST_SUFFIX not in presets.retired_name(latest, version=2)
-
-
-def test_a_retired_name_does_not_collide_with_one_already_there():
-    taken = ["P Titanium v2"]
-    assert presets.retired_name("P Titanium v2 (latest)", taken=taken,
-                                version=2) not in taken
-
-
-# ---------------------------------------------------------------------------
-# Meeting a newer version of the add-in
 # ---------------------------------------------------------------------------
 
 def test_a_higher_schema_stops_it_writing_and_an_unreadable_one_counts_as_higher():
@@ -460,15 +448,14 @@ class FakeLibraryPreset:
         self.name = name
         self.id = "lib-" + name
         self.values = dict(values_now)
-        self.version = 2
 
 
 def test_a_value_that_will_not_go_in_does_not_cause_a_new_copy_every_pass():
     """The churn. presets.apply copies the library's values into a fresh
     preset; any that will not take leave the copy differing from the library
-    for ever, so plan() retired and re-added on every single pass and the
-    dropdown grew without end. A copy records what the library held when it was
-    made, and plan asks whether the library has moved since.
+    for ever, so plan() added another on every single pass and the dropdown
+    grew without end. A copy records what the library held when it was made,
+    and plan asks whether the library has moved since.
     """
     library_preset = FakeLibraryPreset("P Titanium",
                                        {"tool_feedCutting": 1200.0,
@@ -476,7 +463,7 @@ def test_a_value_that_will_not_go_in_does_not_cause_a_new_copy_every_pass():
     # The copy holds the feed but not the coolant: the write was accepted and
     # discarded, which is what was measured in a real document.
     copy = FakePreset(
-        "P Titanium v2 " + config.LATEST_SUFFIX,
+        "P Titanium " + config.LATEST_SUFFIX,
         held={config.KEY_SOURCE_PRESET: library_preset.id,
               config.KEY_VALUES: json.dumps(library_preset.values)},
         params={"tool_feedCutting": 1200.0, "tool_coolant": "mist"})
@@ -488,14 +475,13 @@ def test_a_value_that_will_not_go_in_does_not_cause_a_new_copy_every_pass():
     library_preset.values["tool_feedCutting"] = 1500.0
     moved = presets.plan(tool, library_preset)
     assert moved.get("add") == "P Titanium"
-    assert "tool_feedCutting" in moved.get("because", [])
 
 
 def test_a_copy_that_recorded_nothing_still_gets_compared():
     """Copies made before this existed have no snapshot. They fall back to the
     old comparison, and the plan says which comparison it used."""
     library_preset = FakeLibraryPreset("P Copper", {"tool_feedCutting": 900.0})
-    copy = FakePreset("P Copper v1 " + config.LATEST_SUFFIX,
+    copy = FakePreset("P Copper " + config.LATEST_SUFFIX,
                       held={config.KEY_SOURCE_PRESET: library_preset.id},
                       params={"tool_feedCutting": 900.0})
     assert presets.plan(FakeTool([copy]), library_preset) == {}
@@ -565,7 +551,7 @@ def test_nothing_promises_an_undo_that_does_not_happen():
             "%s promises an undo that does not happen: %r" % (name, said))
     # the way back that does work is offered instead
     assert "Remove all notes" in config.MARKED_TAIL
-    assert "Check this document" in config.UNMARKED
+    assert config.COMMAND_NAME in config.UNMARKED
 
 
 def test_nothing_reads_the_libraries_on_a_thread_of_its_own():
@@ -651,7 +637,8 @@ def test_every_switch_the_code_asks_about_is_a_switch_that_exists():
 
 
 def test_the_tidy_never_offers_a_preset_an_operation_is_running():
-    """The first of removable's three rules, and the only one that destroys work.
+    """removable's one rule that is never bent, and the only one that destroys
+    work.
 
     Deleting a copy an operation points at re-points that operation at whatever
     is left, silently, with its values unchanged -- so it ends up named after a
@@ -664,68 +651,86 @@ def test_the_tidy_never_offers_a_preset_an_operation_is_running():
     with no failure recorded. The copy in use looked spare. The set is walked
     from the operations now, and this pins what it is for.
     """
-    library_tool = type("T", (), {"presets": {"lib-P Titanium": None}})()
+    library_preset = FakeLibraryPreset("P Titanium", {"tool_feedCutting": 1500.0})
+    library_tool = type("T", (), {"presets": {library_preset.id: library_preset}})()
 
-    def copy(name, version):
-        return FakePreset(name, held={config.KEY_SOURCE_PRESET: "lib-P Titanium",
-                                      config.KEY_VERSION: version})
+    def copy(name, stood_for):
+        return FakePreset(
+            name,
+            held={config.KEY_SOURCE_PRESET: library_preset.id,
+                  config.KEY_VALUES: json.dumps({"tool_feedCutting": stood_for})},
+            params={"tool_feedCutting": stood_for})
 
-    one, two, three = copy("P Titanium v1", "1"), copy("P Titanium v2", "2"), \
-        copy("P Titanium v3", "3")
-    tool = FakeTool([one, two, three])
+    old = copy("P Titanium", 1000.0)
+    older = copy("P Titanium (previous)", 900.0)
+    newest = copy("P Titanium (latest)", 1500.0)
+    tool = FakeTool([older, old, newest])
 
-    # Nothing in use: the two older copies go, the newest is kept.
+    # Nothing in use: everything that is not the newest goes. No "one retired
+    # copy is kept" any more -- asked for on 8 October, and it was what filled
+    # these dropdowns.
     spare = presets.removable(tool, library_tool, set())
-    assert len(spare) == 2, spare
-    assert [row[1] for row in spare] == ["P Titanium v2", "P Titanium v1"], spare
+    assert sorted(row[1] for row in spare) == ["P Titanium",
+                                               "P Titanium (previous)"], spare
 
-    # The oldest is in use: it must not be offered, whatever else is.
-    spare = presets.removable(tool, library_tool, {one.id})
+    # One in use: it must not be offered, whatever else is.
+    spare = presets.removable(tool, library_tool, {old.id})
     offered = [row[1] for row in spare]
-    assert "P Titanium v1" not in offered, (
+    assert "P Titanium" not in offered, (
         "offered a copy an operation is running: %s" % offered)
+    assert offered == ["P Titanium (previous)"], offered
 
     # Every copy in use: nothing at all is offered.
     assert presets.removable(
-        tool, library_tool, {one.id, two.id, three.id}) == []
+        tool, library_tool, {older.id, old.id, newest.id}) == []
 
-    # And one in use with only one other present leaves nothing to take, since
-    # the most recently retired copy is kept as the record of what it ran.
-    assert presets.removable(FakeTool([one, two]), library_tool, {two.id}) == []
+    # And with nothing here yet holding the library's values, every copy is
+    # somebody's current one, so none of them is spare.
+    assert presets.removable(FakeTool([older, old]), library_tool, set()) == []
 
 
-def test_numbering_the_shop_library_is_on_by_default():
-    """Decided on 7 October: the shop wants version numbers on.
+def test_nothing_is_renamed_to_make_room_for_something_newer():
+    """The copy an operation sits on keeps the name it was picked by.
 
-    It is the only thing the add-in writes outside somebody's own document, and
-    the only write with no undo, so it is worth being deliberate about. The
-    two-writer race it carries is narrowed and detected rather than closed --
-    see versions.review -- and the alternative is notes that can only say
-    "something newer" instead of "v3 available".
-
-    Pinned because this default is the sort of thing that gets flipped while
-    investigating something else. The test agent sets it False for the duration
-    of a job, on purpose, to keep tests off the real libraries; that is a
-    runtime guard and must not become the shipped default.
+    Reported from the bench on 8 October: an operation on "FAST" found itself
+    on "FAST (previous)" with nobody having touched it. Nothing moved it --
+    the copy it was sitting on was renamed so the new one could take the bare
+    name, and the dropdown shows a preset's name, so that is what somebody
+    sees they are on. The newer copy takes the marker instead.
     """
-    import os
-    import tempfile
+    library_preset = FakeLibraryPreset("FAST", {"tool_feedCutting": 1500.0})
+    library_tool = type("T", (), {"presets": {library_preset.id: library_preset}})()
 
-    scratch = tempfile.mkdtemp()
-    was, was_mark = config.SETTINGS_FILE, config.SETTINGS_CHOSEN
-    config.SETTINGS_FILE = os.path.join(scratch, "none.json")
-    # The mark too. Without this the test read the real machine's mark, so a
-    # machine that had ever saved switches made it fail -- it was asserting
-    # something about this computer rather than about a fresh install.
-    config.SETTINGS_CHOSEN = os.path.join(scratch, "mark", "none")
-    settings.forget()
-    try:
-        assert config.MAY_BUMP_LIBRARY_VERSIONS is True
-        assert settings.default("stamp") is True
-        assert settings.on("stamp") is True, "a fresh install would not number"
-    finally:
-        config.SETTINGS_FILE, config.SETTINGS_CHOSEN = was, was_mark
-        settings.forget()
+    def copy(name, stood_for):
+        return FakePreset(
+            name,
+            held={config.KEY_SOURCE_PRESET: library_preset.id,
+                  config.KEY_VALUES: json.dumps({"tool_feedCutting": stood_for})},
+            params={"tool_feedCutting": stood_for})
+
+    on_it = copy("FAST", 1000.0)
+    fresh = copy("FAST", 1500.0)
+    renames = dict((p.name, w) for p, w in
+                   presets.wanted_names(FakeTool([on_it, fresh]), library_tool,
+                                        {on_it.id}))
+    assert renames == {"FAST": "FAST (latest)"}, renames
+    # and the one being renamed is the fresh copy, never the one in use
+    for preset, _wanted in presets.wanted_names(
+            FakeTool([on_it, fresh]), library_tool, {on_it.id}):
+        assert preset is fresh, "renamed the copy an operation is sitting on"
+
+
+def test_the_marker_comes_off_once_it_is_the_only_copy():
+    """Once the old copy is gone there is nothing to be latest of."""
+    library_preset = FakeLibraryPreset("FAST", {"tool_feedCutting": 1500.0})
+    library_tool = type("T", (), {"presets": {library_preset.id: library_preset}})()
+    alone = FakePreset(
+        "FAST " + config.LATEST_SUFFIX,
+        held={config.KEY_SOURCE_PRESET: library_preset.id,
+              config.KEY_VALUES: json.dumps({"tool_feedCutting": 1500.0})},
+        params={"tool_feedCutting": 1500.0})
+    renames = presets.wanted_names(FakeTool([alone]), library_tool, {alone.id})
+    assert [(p.name, w) for p, w in renames] == [("FAST (latest)", "FAST")], renames
 
 
 def test_the_add_in_taking_its_own_note_off_is_not_somebody_clearing_it():
@@ -850,12 +855,11 @@ def test_a_value_the_document_copy_cannot_hold_does_not_say_pick_the_latest():
     makes another copy that lacks it too and presets.plan rightly refuses. The
     first is "update available". The second has to say something else.
     """
-    gained = verdict(state.BEHIND, libraryVersion=3, documentVersion=2)
+    gained = verdict(state.BEHIND)
     assert "available" in marks.note_line(gained), (
         "a preset that gained a value should still send somebody to the dropdown")
 
-    cannot = verdict(state.BEHIND, libraryVersion=3, documentVersion=2,
-                     copyCannotHold=["tool_stepdown"])
+    cannot = verdict(state.BEHIND, copyCannotHold=["tool_stepdown"])
     said = marks.note_line(cannot)
     assert config.NOTE_COPY_CANNOT_HOLD in said, said
     assert "available" not in said, (
@@ -869,9 +873,8 @@ def test_switches_that_vanish_after_being_chosen_do_not_come_back_on():
     settings._read already refuses to guess when the file is there and cannot be
     read, for the right reason: the person who switched something off is the
     person it must stay off for. An absent file read as a fresh install, and a
-    fresh install has everything on -- including the two switches that write
-    outside somebody's own document, one of which deletes presets and one of
-    which writes to the shared shop library.
+    fresh install has everything on -- including the switch that deletes
+    presets, which is the one thing here with no way back.
 
     Documents is redirected into OneDrive on a lot of machines, and save()'s own
     comment has said so all along. So a mark is kept where nothing syncs, and an
@@ -887,11 +890,11 @@ def test_switches_that_vanish_after_being_chosen_do_not_come_back_on():
         assert settings.on("on") is True
         assert settings.damaged["gone"] is False
 
-        # Somebody turns the two outward-facing ones off.
+        # Somebody turns the one that cannot be taken back off.
         settings.save({"on": True, "open": True, "edit": True, "mark": True,
-                       "presets": True, "tidy": False, "stamp": False})
+                       "presets": True, "tidy": False})
         settings.forget()
-        assert settings.on("tidy") is False and settings.on("stamp") is False
+        assert settings.on("tidy") is False
         assert os.path.exists(config.SETTINGS_CHOSEN), "no mark was left"
 
         # A sync renames the file out from under it.
@@ -901,7 +904,7 @@ def test_switches_that_vanish_after_being_chosen_do_not_come_back_on():
         settings.values()          # damaged is only set once the read happens
         assert settings.damaged["gone"] is True, (
             "a chosen file going missing was read as a fresh install")
-        # Only the two that cannot be taken back. Standing everything down was
+        # Only the one that cannot be taken back. Standing everything down was
         # the first attempt and it stopped the add-in doing anything at all,
         # which is its own silent failure and not what a missing file is
         # evidence of.
@@ -946,80 +949,118 @@ def test_nothing_says_the_latest_suffix_alone_identifies_the_preset():
             "tool with two UTPs has two of them")
 
 
-def test_a_retired_copy_is_named_by_its_version_and_never_by_a_date():
-    """Decided in the shop on 8 October: version numbers, (latest), Custom.
+def test_no_screen_names_a_button_that_is_not_there():
+    """Every button named in a message or on the help page actually exists.
 
-    A dropdown entry reading "P Copper (until 08 Oct 2026)" answers a question
-    nobody asked, beside entries named by what they are. The version form was
-    already the intended one -- "P Titanium v2" beside "P Titanium v3 (latest)"
-    says at a glance how far behind an operation is -- and the date was only
-    ever the fallback for a copy carrying no version. That fallback is now
-    "(previous)".
-
-    Worth saying what this corrects. A copy named "P Copper v23", with a version
-    and no suffix, is the NORMAL retired form. Yesterday I read it as a
-    malformed name and made the tidy stand down on any tool holding one, which
-    guaranteed that retired copies would pile up for ever -- the accumulation
-    that was reported. That check is gone.
+    Three screens were still telling people to press "Check this document"
+    and "Pick up library changes" after one was renamed and the other
+    dropped. Nothing failed; the instructions just quietly became wrong.
     """
-    taken = ["P Copper", "P Copper v3 (latest)"]
+    from utp import instructions
 
-    # With a version: the version is the name, and that is all.
-    assert presets.retired_name("P Copper v2 (latest)", taken,
-                                version="2") == "P Copper v2"
+    buttons = {config.COMMAND_NAME, config.DRY_COMMAND_NAME,
+               config.UNMARK_COMMAND_NAME, config.SWITCHES_COMMAND_NAME,
+               config.FOLDER_COMMAND_NAME, config.DEBUG_COMMAND_NAME,
+               config.HELP_COMMAND_NAME}
+    gone = ("Check this document", "Pick up library changes",
+            "Check without changing anything")
+    screens = {"the help page": instructions._PAGE}
+    for name in dir(config):
+        said = getattr(config, name)
+        if name.isupper() and isinstance(said, str) and len(said) > 30:
+            screens["config.%s" % name] = said
+    for where, said in sorted(screens.items()):
+        for name in gone:
+            assert name not in said or name in buttons, (
+                "%s names a button that is gone: %r" % (where, name))
 
-    # Without one: a plain marker, never a date.
-    plain = presets.retired_name("P Copper (latest)", taken)
-    assert plain == "P Copper %s" % config.PREVIOUS_SUFFIX, plain
-    assert "until" not in plain.lower()
 
-    # Several of those, numbered rather than dated.
-    more = presets.retired_name("P Copper (latest)", taken + [plain])
-    assert more == "P Copper %s" % (config.PREVIOUS_NUMBERED % 2), more
-    assert "until" not in more.lower()
+def test_the_icons_are_everything_fusion_looks_for():
+    """Each button has a full set: both themes, both pixel densities.
 
-    # And nothing anywhere can produce a dated name any more.
-    for name in ("RETIRED_SUFFIX", "RETIRED_FORMAT", "RETIRED_FORMAT_EXACT"):
-        assert not hasattr(config, name), "%s is back" % name
-    assert not hasattr(presets, "_dated_name")
-    assert not hasattr(presets, "oddly_named"), (
-        "the check that made the tidy refuse to clear normal retired copies "
-        "is back")
-def test_a_note_only_names_a_version_that_is_genuinely_ahead():
-    """Two reports from real use, a day apart.
-
-    "UTP P Copper v1 - v1 available" -- update to the version you have. And then
-    "UTP P Copper v3 - v1 available" -- update backwards.
-
-    A version only means anything within one preset's own line of descent. A
-    copy's number describes the library preset it was taken from, so the moment
-    an operation resolves to a DIFFERENT library preset -- a tool removed,
-    renamed, re-imported, or one of several carrying the same description -- the
-    two numbers come from separate sequences and comparing them is meaningless.
-    The second report came minutes after ten tools were deleted from a library.
-
-    They also arrive as text, read by two different functions, so they must not
-    be compared as strings: "10" is less than "9" that way.
+    Shipping only 16x16/32x32/64x64 left Fusion scaling a 16-pixel bitmap up
+    on a HiDPI screen, which looked like a low-resolution icon, and using the
+    light drawing on the dark theme. Fusion picks by filename and silently
+    falls back, so nothing complains -- it just looks wrong on the toolbar.
     """
-    def note(document_version, library_version):
-        return marks.note_line(verdict(state.BEHIND,
-                                       documentVersion=document_version,
-                                       libraryVersion=library_version))
+    import re
 
-    # Neither reported case may name a version.
-    for held, offered in (("1", "1"), ("3", "1")):
-        said = note(held, offered)
-        assert "v%s available" % offered not in said, said
-        assert config.NOTE_UPDATE in said, (
-            "a behind operation must still say an update is available: %r" % said)
+    # addin.py imports adsk at module level, so its COMMANDS table is read
+    # out of the source rather than imported: these tests run outside Fusion.
+    source = open(os.path.join(HERE, "..", "utp", "addin.py"),
+                  encoding="utf-8").read()
+    table = source[source.index("COMMANDS = ["):source.index("def _icon_folder")]
+    folders = re.findall(r'"([a-z][a-z-]+)"', table)
+    assert len(folders) == 7, "expected an icon per command, found %s" % folders
 
-    # A genuine step forward is still named, and compared as a number.
-    assert "v2 available" in note("1", "2")
-    assert "v10 available" in note("9", "10"), (
-        "compared as text, so ten reads as older than nine")
+    wanted = set()
+    for size in ("16x16", "32x32", "64x64"):
+        for theme in ("", "-dark"):
+            for scale in ("", "@2x"):
+                wanted.add("%s%s%s.png" % (size, theme, scale))
+    for name in folders:
+        where = os.path.join(HERE, "..", "utp", "resources", name)
+        assert os.path.isdir(where), "no icon folder called %s" % name
+        missing = wanted - set(os.listdir(where))
+        assert not missing, "%s is missing %s" % (
+            name, ", ".join(sorted(missing)))
 
-    # Nothing recorded locally: naming the library's is all there is to say.
-    assert "v4 available" in note(None, "4")
 
-    # A library version that will not read as a number is not guessed at.
-    assert config.NOTE_UPDATE in note("1", "not a number")
+def test_every_setting_the_code_reads_is_actually_in_config():
+    """No module names a config constant that is not there.
+
+    Written after 8 October, when addin.py was changed to read
+    PREFERRED_TAB_ID and PREFERRED_BEFORE_PANEL and the matching half of
+    config.py was never written. The AttributeError landed in a blanket
+    except, the add-in fell back to Fusion's Manage panel, and it looked for
+    all the world like a deliberate placement. A missing name is a typo, and a
+    typo should not need somebody to notice their toolbar is wrong.
+    """
+    import re
+
+    package = os.path.join(HERE, "..", "utp")
+    missing = []
+    for name in sorted(os.listdir(package)):
+        if not name.endswith(".py"):
+            continue
+        source = open(os.path.join(package, name), encoding="utf-8").read()
+        for setting in sorted(set(re.findall(r"config\.([A-Z][A-Z0-9_]*)",
+                                             source))):
+            if not hasattr(config, setting):
+                missing.append("%s reads config.%s" % (name, setting))
+    assert missing == [], "\n".join(missing)
+
+
+def test_only_one_copy_is_ever_the_newest():
+    """Two copies holding the library's values must not both keep the bare name.
+
+    Measured on the bench, 8 October: a pass added a copy while an identical
+    one was already there, both answered "I am the newest", and the dropdown
+    showed "P Titanium" twice with nothing to tell them apart.
+    """
+    library_preset = FakeLibraryPreset("P Titanium", {"tool_feedCutting": 1500.0})
+    library_tool = type("T", (), {"presets": {library_preset.id: library_preset}})()
+
+    def copy(name):
+        return FakePreset(
+            name,
+            held={config.KEY_SOURCE_PRESET: library_preset.id,
+                  config.KEY_VALUES: json.dumps({"tool_feedCutting": 1500.0})},
+            params={"tool_feedCutting": 1500.0})
+
+    first, second = copy("P Titanium"), copy("P Titanium")
+    # FakePreset names its id after the preset's name, and these two share a
+    # name on purpose, so they need telling apart the way real ones are.
+    first.id, second.id = "copy-one", "copy-two"
+    tool = FakeTool([first, second])
+
+    # Both are in use, so neither can be removed -- the names still have to
+    # be told apart.
+    wanted = dict((id(p), w) for p, w in
+                  presets.wanted_names(tool, library_tool, {first.id, second.id}))
+    assert wanted.get(id(first)) in (None, "P Titanium (latest)")
+    assert len(set(w for w in wanted.values())) == len(wanted), wanted
+
+    # And with nothing using the spare one, it is offered for removal.
+    offered = presets.removable(tool, library_tool, {first.id})
+    assert [row[2] for row in offered] == [second.id], offered

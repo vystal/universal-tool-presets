@@ -707,7 +707,13 @@ def _check_settles(bench):
     passes.run(bench.app)
     _path, _counts, message = passes.run(bench.app)
     headline = message.splitlines()[0]
-    if " 0 of " not in headline:
+    # Taken from config rather than matched on " 0 of ", which is what this
+    # looked for until the headline was reworded on 8 October: a pass that
+    # wrote nothing started saying so in words and this read it as a failure.
+    # A real regression still fails it, because writing anything puts the
+    # count back in the headline.
+    settled = config.MARKED_NOTHING % len(bench.operations())
+    if headline != settled and " 0 of " not in headline:
         return "FAIL", ("a second check still had work to do: %r. The document "
                         "never settles." % headline)
     return "PASS", headline
@@ -992,84 +998,15 @@ def _whole_and_kept(bench):
                     % len(first))
 
 
-@check("a library that moved mid-pass is not written over")
-def _race_guard(bench):
-    """The two-writer race, which is real and destroys work.
-
-    Measured 7 October on the TEST library, one process holding two snapshots --
-    which is exactly what two machines are. A session set a feed from 1750 to
-    1751 and a fresh read confirmed it. The add-in then stamped a version using a
-    shelf opened before that change, and the feed read 1750 again:
-    updateToolLibrary puts back the WHOLE library from the shelf it is given, so
-    the one change this add-in exists to propagate was reverted by this add-in,
-    silently and with no undo.
-
-    So versions.review snapshots every preset in the library, walks it, re-opens
-    it, and writes only if nothing at all moved in between -- every preset, not
-    only the ones being stamped, because the write puts all of them back.
-
-    Simulated by making the second reading of the library differ from the first,
-    which is what somebody else's change looks like from in here. The flip is
-    triggered from needed(), which runs after the first reading is taken and
-    before the second.
-    """
-    from utp import values, versions
-
-    libraries = adsk.cam.CAMManager.get().libraryManager.toolLibraries
-    tools = bench.tools()
-    target = None
-    for tool in tools.values():
-        for preset in tool.presets.values():
-            if preset.library_url is not None and preset.values:
-                target = preset
-                break
-        if target:
-            break
-    if target is None:
-        return "SKIP", "no library preset with values to work with"
-
-    was_needed, was_scalars = versions.needed, values.scalars
-    moved = {"yet": False}
-    report = Quiet()
-
-    def scalars(owner):
-        held = was_scalars(owner)
-        if moved["yet"] and held:
-            # One value different, as a feed change in between would be. A
-            # float, found by looking: the first key alphabetically is usually
-            # tool_coolant, which is a string, so perturbing that one changed
-            # nothing and the check passed itself for the wrong reason.
-            for name in sorted(held):
-                if isinstance(held[name], float) and not isinstance(held[name], bool):
-                    return dict(held, **{name: held[name] + 1.0})
-        return held
-
-    def needed(preset):
-        moved["yet"] = True        # from here on, the library reads differently
-        return 99, was_scalars(preset), "test: needs a stamp"
-
-    try:
-        versions.needed, values.scalars = needed, scalars
-        versions.review(libraries, [target], report, True)
-    finally:
-        versions.needed, values.scalars = was_needed, was_scalars
-
-    if report.failures < 1:
-        return "FAIL", ("a library that moved between deciding and writing was "
-                        "written anyway; putting it back from the older shelf "
-                        "reverts whatever somebody else changed")
-
-    # And the refused stamp must not have landed.
-    library.forget()
-    fresh = library.cached(Quiet(), None)[0]
-    tool = fresh.get(target.tool_id)
-    if tool is not None:
-        again = tool.presets.get(target.id)
-        if again is not None and again.version == "99":
-            return "FAIL", "the refused stamp was written to the shop library"
-    return "PASS", ("a library that changed between deciding and writing was "
-                    "refused and reported (%d failure(s))" % report.failures)
-
+# The two-writer race check lived here. It covered versions.review, which
+# snapshotted a whole library, decided, re-opened it and refused the write if
+# anything had moved -- because updateToolLibrary puts back the WHOLE library
+# from the shelf it is given, so a stamp written from a stale shelf reverted a
+# feed change somebody else had just made. Measured 7 October, and real.
+#
+# The check goes with the thing it guarded. Version stamping was removed on
+# 8 October and with it the only write this add-in ever made outside the
+# person's own document, so there is no longer a library write to race on.
 
 @check("what the tidy may not delete is read from the operations, not the verdicts")
 def _in_use_from_operations(bench):

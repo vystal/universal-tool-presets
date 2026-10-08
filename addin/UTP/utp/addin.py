@@ -105,6 +105,12 @@ def _check(app):
     if not settings.on("on"):
         return config.IS_OFF, None
     path, _counts, message = passes.run(app)
+    if not settings.on("summary"):
+        # Silent by default, asked for on 8 October. The notes on the
+        # operations are the answer and the progress bar showed it working,
+        # so a box to dismiss afterwards is one press for nothing. Check only
+        # still speaks, because looking is all it does.
+        return None, None
     if not settings.on("mark"):
         # The pass still ran, so there is a report saying what it would have
         # done, and the preset switches still mean what they say. Returning
@@ -112,61 +118,19 @@ def _check(app):
         # it had not written, and silently refused preset work the Switches
         # dialog offers as its own control.
         message = config.MARKING_OFF + "\n\n" + message
-    return message, path and ("Report:\n%s" % path)
+    return message, path and ("Report: %s" % path)
 
 
 def _check_only(app):
     from . import passes
     path, _counts, message = passes.run(app, allow_writing=False)
-    return message, path and ("Report:\n%s" % path)
+    return message, path and ("Report: %s" % path)
 
 
 def _unmark(app):
     from . import passes
     path, _counts, message = passes.remove_marks(app)
-    return message, path and ("Report:\n%s" % path)
-
-
-def _refresh(app):
-    """Read the Hub libraries again, and bring the open job up to date with them.
-
-    The marking is the point, and it used to be missing. This button exists for
-    "somebody changed a preset while Fusion was open" -- which is precisely when
-    every note in front of you is wrong -- and it re-read the libraries, touched
-    no operation, and reported "Read 390 tools and 441 presets from 8 libraries"
-    with real numbers in it. A confident success message over a document still
-    showing the old green, and nothing saying the notes had not moved.
-    """
-    from . import events, library
-    report = diagnostics.Report("library refresh")
-    library.forget()
-    tools, ok = library.cached(report, adsk.doEvents, force=True)
-    presets = sum(len(tool.presets) for tool in tools.values())
-    shelves = len({tool.library for tool in tools.values()})
-    if not ok:
-        # forget() has already emptied the cache, so a failed re-read leaves
-        # this session with no reading at all rather than holding what it had.
-        # Said out loud, because a session without one stands every automatic
-        # trigger down and otherwise looks exactly like a working one.
-        report.failed("the libraries could not be re-read, and the reading this "
-                      "session had was already let go, so nothing will be "
-                      "decided until one succeeds")
-        report.close()
-        return config.NO_LIBRARY, None
-    # A full pass, not a budgeted one: somebody pressed a button and is waiting.
-    wrote = 0
-    try:
-        document = app.activeDocument
-    except Exception:
-        document = None
-    if document is not None:
-        events.forget_sweeps()
-        wrote = events.mark_document(
-            document, "refresh: bringing the job up to date with the new reading",
-            budget=None, trigger=None)
-    path = report.close()
-    return (config.REFRESHED % (len(tools), shelves, presets, wrote),
-            "Report:\n%s" % path if path else None)
+    return message, path and ("Report: %s" % path)
 
 
 def _folder(app):
@@ -249,29 +213,42 @@ def _debug(app):
     from . import debug
     path = debug.collect(app)
     return (config.DEBUG_WRITTEN if path else config.DEBUG_FAILED,
-            path and ("Report:\n%s" % path))
+            path and ("Report: %s" % path))
 
 
 # The order they are read in, not the order they were built: the two used
 # most first, instructions last.
+# id, name, tooltip, what it does, what to confirm first, what to ask, and the
+# folder its icon lives in. The icons are drawn by tools/make_icons.py; a panel
+# control with none shows as a blank square.
 COMMANDS = [
     (config.COMMAND_ID, config.COMMAND_NAME, config.COMMAND_TOOLTIP,
-     _check, None, None),
+     _check, None, None, "update-presets"),
     (config.DRY_COMMAND_ID, config.DRY_COMMAND_NAME,
-     config.DRY_COMMAND_TOOLTIP, _check_only, None, None),
-    (config.REFRESH_COMMAND_ID, config.REFRESH_COMMAND_NAME,
-     config.REFRESH_COMMAND_TOOLTIP, _refresh, None, None),
+     config.DRY_COMMAND_TOOLTIP, _check_only, None, None, "check-only"),
     (config.UNMARK_COMMAND_ID, config.UNMARK_COMMAND_NAME,
-     config.UNMARK_COMMAND_TOOLTIP, _unmark, config.UNMARK_CONFIRM, None),
+     config.UNMARK_COMMAND_TOOLTIP, _unmark, config.UNMARK_CONFIRM, None,
+     "remove-marks"),
     (config.SWITCHES_COMMAND_ID, config.SWITCHES_COMMAND_NAME,
-     config.SWITCHES_COMMAND_TOOLTIP, _switches, None, _ask_switches),
+     config.SWITCHES_COMMAND_TOOLTIP, _switches, None, _ask_switches,
+     "switches"),
     (config.FOLDER_COMMAND_ID, config.FOLDER_COMMAND_NAME,
-     config.FOLDER_COMMAND_TOOLTIP, _folder, None, None),
+     config.FOLDER_COMMAND_TOOLTIP, _folder, None, None, "folder"),
     (config.DEBUG_COMMAND_ID, config.DEBUG_COMMAND_NAME,
-     config.DEBUG_COMMAND_TOOLTIP, _debug, None, None),
+     config.DEBUG_COMMAND_TOOLTIP, _debug, None, None, "report"),
     (config.HELP_COMMAND_ID, config.HELP_COMMAND_NAME,
-     config.HELP_COMMAND_TOOLTIP, _help, None, None),
+     config.HELP_COMMAND_TOOLTIP, _help, None, None, "instructions"),
 ]
+
+
+def _icon_folder(name):
+    """Where this command's icons are, as an absolute path.
+
+    Absolute rather than relative: the add-in runs from a cache folder the
+    loader chose, not from wherever Fusion thinks the current directory is.
+    """
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "resources", name)
 
 
 # ---------------------------------------------------------------------------
@@ -296,12 +273,7 @@ def _own_panel(ui):
         if workspace is None:
             return None, None
         tabs = workspace.toolbarTabs
-        wanted = None
-        for index in range(tabs.count):
-            tab = tabs.item(index)
-            if config.PREFERRED_TAB in ("%s %s" % (tab.id, tab.name)).lower():
-                wanted = tab
-                break
+        wanted = tabs.itemById(config.PREFERRED_TAB_ID)
         if wanted is None and tabs.count:
             wanted = tabs.item(tabs.count - 1)
         if wanted is None:
@@ -309,9 +281,30 @@ def _own_panel(ui):
         existing = wanted.toolbarPanels.itemById(config.PANEL_ID)
         if existing:
             existing.deleteMe()
-        panel = wanted.toolbarPanels.add(config.PANEL_ID, config.PANEL_NAME)
-        return panel, "%s / %s" % (wanted.id, config.PANEL_ID)
+        # Inserted before the 2D panel, which puts it between Setup and 2D.
+        # If that panel is not in this build, it is appended rather than
+        # refused: a panel in the wrong place still works.
+        before = wanted.toolbarPanels.itemById(config.PREFERRED_BEFORE_PANEL)
+        if before is not None:
+            panel = wanted.toolbarPanels.add(
+                config.PANEL_ID, config.PANEL_NAME,
+                config.PREFERRED_BEFORE_PANEL, True)
+            where = "%s / %s, before %s" % (wanted.id, config.PANEL_ID,
+                                            config.PREFERRED_BEFORE_PANEL)
+        else:
+            panel = wanted.toolbarPanels.add(config.PANEL_ID, config.PANEL_NAME)
+            where = "%s / %s, appended (%s not found)" % (
+                wanted.id, config.PANEL_ID, config.PREFERRED_BEFORE_PANEL)
+        return panel, where
     except Exception:
+        # Said out loud, because swallowing this cost an afternoon on
+        # 8 October: two constants this function reads were missing from
+        # config, the AttributeError landed here, and everything went quietly
+        # into Fusion's Manage panel instead. The fallback is still the right
+        # behaviour -- a panel in the wrong place beats no buttons -- but it
+        # has to leave a reason behind, not just a destination.
+        diagnostics.session_log("could not make our own panel",
+                                why=traceback.format_exc(limit=3).strip())
         return None, None
 
 
@@ -340,12 +333,21 @@ def start(app, loaded_from_path=None):
     try:
         definitions = ui.commandDefinitions
         built = []
-        for command_id, name, tooltip, work, confirm, ask in COMMANDS:
+        for command_id, name, tooltip, work, confirm, ask, icon in COMMANDS:
             existing = definitions.itemById(command_id)
             if existing:
                 existing.deleteMe()
-            definition = definitions.addButtonDefinition(
-                command_id, name, tooltip)
+            where = _icon_folder(icon)
+            if os.path.isdir(where):
+                definition = definitions.addButtonDefinition(
+                    command_id, name, tooltip, where)
+            else:
+                # An install missing its resources still works, with Fusion's
+                # blank icon. Worth a line rather than a crash.
+                diagnostics.session_log("no icon folder", command=command_id,
+                                        looked_in=where)
+                definition = definitions.addButtonDefinition(
+                    command_id, name, tooltip)
             created = _Created(work, confirm, ask)
             definition.commandCreated.add(created)
             _handlers.append(created)
@@ -367,7 +369,18 @@ def start(app, loaded_from_path=None):
                 existing = panel.controls.itemById(definition.id)
                 if existing:
                     existing.deleteMe()
-                panel.controls.addCommand(definition)
+                control = panel.controls.addCommand(definition)
+                if definition.id == config.COMMAND_ID and control is not None:
+                    # Shown as a button in the panel rather than folded into
+                    # the overflow. Asked for on 8 October: this is the one
+                    # somebody presses, so it has to be reachable without
+                    # hunting. isPromotedByDefault as well, or Fusion forgets
+                    # it the first time somebody rearranges the toolbar.
+                    try:
+                        control.isPromotedByDefault = True
+                        control.isPromoted = True
+                    except Exception:
+                        pass
 
         diagnostics.session_log("started", version=version.VERSION,
                                 loaded_from=loaded_from_path or "in place",
@@ -394,7 +407,7 @@ def shutdown(app):
             except Exception:
                 pass
         _state["panel"] = None
-        for command_id, _name, _tip, _work, _confirm, _ask in COMMANDS:
+        for command_id, _name, _tip, _work, _confirm, _ask, _icon in COMMANDS:
             definition = ui.commandDefinitions.itemById(command_id)
             if definition:
                 definition.deleteMe()

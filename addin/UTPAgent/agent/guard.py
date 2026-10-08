@@ -28,7 +28,7 @@ TEST_LIBRARY = "TEST"
 # on the machine it is developed on.
 REPO = "C:/code/active/fusion-utp"
 
-_held = {"bumping": None}
+
 
 
 def may_write(app):
@@ -55,27 +55,23 @@ def may_write(app):
 
 
 def hold_library_writes():
-    """Stop the add-in stamping versions into a shop library during a job."""
-    from utp import config
-    _held["bumping"] = config.MAY_BUMP_LIBRARY_VERSIONS
-    config.MAY_BUMP_LIBRARY_VERSIONS = False
+    """Nothing to hold any more. Kept so the runner needs no change.
+
+    This used to switch config.MAY_BUMP_LIBRARY_VERSIONS off for the duration
+    of a job, because the add-in stamped version numbers into the shop's
+    shared library and a test job had no business writing there. Version
+    stamping was removed on 8 October, and with it the only write the add-in
+    ever made outside the person's own document, so there is nothing left for
+    a job to be held back from.
+    """
 
 
 def let_library_writes_go():
-    from utp import config
-    if _held["bumping"] is not None:
-        config.MAY_BUMP_LIBRARY_VERSIONS = _held["bumping"]
-        _held["bumping"] = None
+    """The other half of the pair above, and equally empty now."""
 
 
 def allow_library_writes():
-    """For a job that is deliberately testing the version stamping.
-
-    Called by the job itself, so it appears in the job text rather than in a
-    setting somewhere, and reading the job tells you it did this.
-    """
-    from utp import config
-    config.MAY_BUMP_LIBRARY_VERSIONS = True
+    """Was how a job testing the stamping opted into it. Nothing to opt into."""
 
 
 def libraries_used(app):

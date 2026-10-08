@@ -12,7 +12,7 @@ import adsk.core
 import adsk.cam
 
 from . import (compat, config, diagnostics, library, marks, presets,
-               settings, state, versions)
+               settings, state)
 
 
 def _users(vector):
@@ -132,63 +132,58 @@ def _document_tool(cam, tool_id, shelf=None):
 
 
 class _Progress:
-    """A progress bar, or nothing at all.
+    """Fusion's busy bar in the corner, for a button press. Never a dialog.
 
-    Fusion's only on-screen progress is a dialog, and a dialog blocks working
-    in Fusion while it is up, so this is off unless somebody asks for it. The
-    session log gets a line every chunk either way, which is an indicator
-    that gets in nobody's way but has to be looked at to be seen.
+    ui.progressBar.showBusy is the moving bar in the lower-right of the Fusion
+    window -- the one Fusion puts up itself while a document opens. It is not
+    modal, so somebody can carry on working while a pass runs, and it carries
+    no percentage: it says something is happening, which is all there is to
+    say when the slow part is a library read of unknown length.
 
-    Shown only for a document big enough to wait for: on a handful of
-    operations a bar is a flicker.
+    A createProgressDialog was tried first and was wrong on both counts: a
+    dialog in the middle of the screen, in the way, for a job nobody asked to
+    be interrupted by. It also brought a cancel button, which this has no
+    equivalent of -- the busy bar has no buttons at all. No loss worth the
+    dialog: a button press runs to the end in a couple of seconds, and the
+    automatic passes are capped and never show a bar at all.
     """
 
-    def __init__(self, app, total, report):
-        self.dialog = None
-        self.cancelled = False
+    def __init__(self, app, report):
+        self.bar = None
         self.report = report
-        if not config.SHOW_PROGRESS or total < config.PROGRESS_FROM:
+        if not config.SHOW_PROGRESS:
             return
         try:
-            self.dialog = app.userInterface.createProgressDialog()
-            self.dialog.isCancelButtonShown = True
-            self.dialog.show(config.DIALOG_TITLE, config.PROGRESS_MESSAGE,
-                             0, total)
+            self.bar = app.userInterface.progressBar
+            # isModal False, explicitly: modal here would take the whole UI
+            # away, and a modal bar left showing by a raise on the way out is
+            # a Fusion somebody has to kill.
+            self.bar.showBusy(config.PROGRESS_READING, False)
         except Exception:
-            self.dialog = None
+            self.bar = None
 
     def saying(self, message):
         """Change what the bar says, for a later stage of the same pass."""
-        if self.dialog is not None:
-            try:
-                self.dialog.message = message
-            except Exception:
-                pass
+        if self.bar is None:
+            return
+        try:
+            self.bar.message = message
+        except Exception:
+            self.bar = None
 
     def at(self, done):
-        """Move it along. True means somebody pressed cancel."""
-        if self.dialog is None:
-            return False
-        try:
-            if self.dialog.wasCancelled:
-                self.cancelled = True
-                return True
-            self.dialog.progressValue = done
-        except Exception:
-            self.dialog = None
+        """Kept for the callers that count. A busy bar has nothing to move."""
         return False
 
     def done(self):
-        if self.dialog is not None:
+        # Called twice: where the pass finishes, and from the finally that
+        # guarantees it comes down whichever way the pass leaves.
+        if self.bar is not None:
             try:
-                self.dialog.hideDialog()
+                self.bar.hide()
             except Exception:
                 pass
-            self.dialog = None
-        if self.cancelled:
-            self.report.note("STOPPED: somebody pressed cancel",
-                             note="whatever was written stays, and one undo "
-                                  "takes it back")
+            self.bar = None
 
 
 def _verdicts(operations, tools, report, progress=None, resolve=None):
@@ -230,39 +225,6 @@ def _verdicts(operations, tools, report, progress=None, resolve=None):
     return found
 
 
-def _review_versions(cam, decided, tools, report, writing):
-    """Bring version numbers up to date, for the UTPs this document uses.
-
-    Returns the libraries to carry on with: after a bump they have to be read
-    again, or the pass that moved a number writes notes that do not carry it.
-
-    Only the presets in hand, never all of them: this runs on a button press
-    and every library write is risk for no gain. A library nobody has stamped
-    still works; its notes just carry no numbers.
-    """
-    wanted = {}
-    for operation, verdict in decided:
-        found = verdict.get("libraryPresetId")
-        if not found:
-            continue
-        library_tool = tools.get(verdict.get("toolId"))
-        if library_tool is None:
-            continue
-        preset = library_tool.presets.get(found)
-        if preset is not None:
-            wanted[preset.id] = preset
-    if not wanted:
-        return tools
-    libraries = adsk.cam.CAMManager.get().libraryManager.toolLibraries
-    allowed = writing and settings.on("stamp")
-    if versions.review(libraries, wanted.values(), report, allowed) and allowed:
-        library.forget()          # the numbers just moved; read them again
-        fresh, ok = library.cached(report, adsk.doEvents, force=True)
-        if ok:
-            return fresh
-    return tools
-
-
 def _sync_and_tidy(cam, in_use, used_ids, report, writing, tidying=True):
     """Bring in UTPs the document has never seen, and drop copies nothing needs.
 
@@ -289,7 +251,7 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing, tidying=True):
         absent = presets.missing(tool, library_tool)
         if absent:
             allowed = writing and settings.on("presets")
-            names = [presets.latest_name(p.name, p.version) for p in absent]
+            names = [presets.plain_name(p.name) for p in absent]
             if not allowed:
                 report.note("would bring in presets this document has not seen",
                             tool=library_tool.description, presets=names)
@@ -310,55 +272,74 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing, tidying=True):
                 if tool is None:
                     continue
 
-        if not tidying:
-            report.note("not tidying: only part of the document was looked at",
-                        tool=library_tool.description,
-                        reason=("what operations point at is only known in "
-                                "full after a whole pass"))
+
+    return wrote
+
+
+def _tidy(cam, in_use, used_ids, report, writing):
+    """Drop copies nothing uses. Its own pass, after everything is added.
+
+    It used to run before presets were brought in, and that left a pass
+    unable to finish the job: the copy being replaced is only spare once the
+    replacement exists, so the tidy saw nothing to do, the add happened after
+    it, and the dropdown carried a stale entry -- and a "(previous)" invented
+    to name it -- until the next pass. Measured on the bench 8 October.
+
+    Removing a preset is the one destructive thing in here and the whole
+    protection is used_ids: the set of presets operations point at. A caller
+    working from a slice of the document builds that set from a slice, so a
+    preset an operation elsewhere is sitting on would look spare -- which is
+    why this only runs on a whole pass.
+    """
+    wrote = False
+    shelf = _document_tools(cam)
+    for seen, (tool_id, library_tool) in enumerate(in_use.items()):
+        _breathe(seen, 5)
+        tool = shelf.get(tool_id)
+        if tool is None:
             continue
-        for preset, wanted in presets.dated_names(tool):
-            was = preset.name
-            if not writing:
-                report.note("would rename %s to %s" % (was, wanted))
-                continue
-            try:
-                preset.name = wanted
-                wrote = True
-                report.note("renamed %s to %s" % (was, wanted),
-                            why="retired copies are named by their version now, "
-                                "never by a date")
-            except Exception:
-                report.failed("could not rename %s" % was)
+        # Removal first, then names. The order is the whole of the new
+        # behaviour: once the copy somebody has moved off is gone, the one
+        # they moved onto is the only copy of its preset and gets the bare
+        # name back. Naming first would leave it as "(latest)" for ever.
+        # Removal first, then names, and every one of the reasons not to
+        # remove has to fall through to the naming rather than skip it.
+        #
+        # They did not. "if not spare: continue" sent the commonest case of
+        # all -- nothing to tidy, because the copy somebody is on is in use
+        # and protected -- straight past the renaming, so a freshly added
+        # copy kept the bare name the one beside it already had. Measured on
+        # the bench 8 October: two entries, both "P Titanium", while
+        # wanted_names was asking for one of them to be "(latest)" the whole
+        # time. The decision was right and nothing carried it out.
         spare = presets.removable(tool, library_tool, used_ids)
-        if not spare:
-            continue
-        if report.failures:
+        allowed = writing and settings.on("tidy")
+        if spare and report.failures:
             # Nothing is deleted after a pass that went wrong. The operation
             # walk is defensive, so a collection that threw leaves an
             # operation invisible rather than raising, and an invisible
             # operation's preset is one nothing is protecting.
             report.note("not tidying: something went wrong in this pass",
                         failures=report.failures,
-                        would_have_removed=[n for _i, n, _v in spare])
-            continue
-        allowed = writing and settings.on("tidy")
-        if not allowed:
+                        would_have_removed=[row[1] for row in spare])
+        elif spare and not allowed:
             report.note("would remove copies nothing uses any more",
                         tool=library_tool.description,
-                        presets=[name for _i, name, _v in spare],
+                        presets=[row[1] for row in spare],
                         held_back=("tidying is switched off" if writing
                                    else "writing is switched off"),
-                        kept=("whatever operations point at, and the most "
-                              "recently retired copy"))
-            continue
-        try:
-            report.note("tidied the document tool library",
-                        did=presets.remove(cam, tool, spare))
-            report.wrote += len(spare)
-            wrote = True
-            shelf = _document_tools(cam)   # update() invalidated them
-        except Exception:
-            report.failed("could not tidy %s" % library_tool.description)
+                        kept="whatever operations point at")
+        elif spare:
+            try:
+                report.note("tidied the document tool library",
+                            did=presets.remove(cam, tool, spare))
+                report.wrote += len(spare)
+                wrote = True
+                shelf = _document_tools(cam)   # update() invalidated them
+                tool = shelf.get(tool_id)
+            except Exception:
+                report.failed("could not tidy %s" % library_tool.description)
+
     return wrote
 
 
@@ -408,6 +389,41 @@ def _presets_in_use(cam, report):
             report.failed("could not read a preset's id (%s), so nothing is "
                           "safe to remove" % exc)
     return ids
+    return wrote
+
+
+def _name_copies(cam, in_use, used_ids, report, writing):
+    """Settle what every copy is called, once nothing else will move.
+
+    Its own pass, at the very end, because naming depends on what the dropdown
+    finally holds: whether a copy is the only one of its preset decides
+    whether it carries (latest) at all. It used to sit inside _sync_and_tidy,
+    which runs BEFORE presets are added, so a copy added in a pass could not
+    be named until the next one -- measured on the bench, two passes to settle
+    where one should do.
+    """
+    wrote = False
+    shelf = _document_tools(cam)
+    for tool_id, library_tool in in_use.items():
+        tool = shelf.get(tool_id)
+        if tool is None:
+            continue
+        renames = presets.wanted_names(tool, library_tool, used_ids)
+        if not renames:
+            continue
+        if not writing:
+            report.note("would rename copies",
+                        did=["%s to %s" % (p.name, w) for p, w in renames])
+            continue
+        try:
+            report.note("named the copies",
+                        did=presets.rename(cam, tool, renames))
+            wrote = True
+            shelf = _document_tools(cam)   # update() invalidated them
+        except Exception:
+            report.failed("could not rename copies on %s"
+                          % library_tool.description)
+    return wrote
 
 
 def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
@@ -462,11 +478,11 @@ def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
         intended = presets.plan(tool, library_preset)
         if not intended:
             report.note("the newer values are already pickable",
-                        preset=presets.latest_name(library_preset.name))
+                        preset=presets.plain_name(library_preset.name))
             continue
         if not allowed:
             report.note("would add a preset to the document", plan=intended,
-                        preset=presets.latest_name(library_preset.name),
+                        preset=presets.plain_name(library_preset.name),
                         held_back=("adding presets is switched off"
                                    if writing else "writing is switched off"))
             continue
@@ -484,6 +500,17 @@ def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
             wrote = True
         except Exception:
             report.failed("could not add a preset for %s" % library_preset.name)
+    if tidying:
+        # Only on a whole pass. used_ids built from a slice of the document
+        # does not say what every operation is sitting on, and both of these
+        # lean on it -- the tidy to know what it may not delete, the naming to
+        # know which copy somebody is sitting on.
+        wrote = _tidy(cam, in_use, used_ids, report, writing) or wrote
+        wrote = _name_copies(cam, in_use, used_ids, report, writing) or wrote
+    else:
+        report.note("not tidying: only part of the document was looked at",
+                    reason=("what operations point at is only known in full "
+                            "after a whole pass"))
     return wrote
 
 
@@ -548,7 +575,8 @@ def remove_marks(app):
     """
     with marks.holding():
         document = app.activeDocument
-        report = diagnostics.Report((document.name if document else "?") + " - unmark")
+        report = diagnostics.Report((document.name if document else "?") + " - unmark",
+                                    keeping=settings.on("report"))
         try:
             products = document.products if document else None
             cam = products.itemByProductType("CAMProductType") if products else None
@@ -817,7 +845,13 @@ def run(app, allow_writing=True):
     """Check the active document. Returns (report path, counts, message)."""
     with marks.holding():
         document = app.activeDocument
-        report = diagnostics.Report(document.name if document else "no document")
+        report = diagnostics.Report(document.name if document else "no document",
+                                    keeping=settings.on("report"))
+        # Named before the try, so the finally can always take the bar down.
+        # It goes up before the library read now, and there are three returns
+        # between there and the end: a progress dialog left showing is a
+        # Fusion somebody has to kill.
+        progress = None
         try:
             products = document.products if document else None
             cam = products.itemByProductType("CAMProductType") if products else None
@@ -839,6 +873,12 @@ def run(app, allow_writing=True):
             # been read this session. Every library is read now.
             clock = _Clock(report)
             marks.forget_cost()
+            # Up before the library read rather than after it. The read is the
+            # slow part -- about three and a half seconds -- and a bar that
+            # only appears once that is over shows nothing worth seeing.
+            # Started at an unknown total, because the operations have not been
+            # walked yet; _Progress.total() sets it once they have.
+            progress = _Progress(app, report)
             shelf = _document_tools(cam)
             resolve = _id_by_description(shelf)
             clock.at("read the document's tools")
@@ -885,31 +925,16 @@ def run(app, allow_writing=True):
 
             clock.at("walked the document")
 
-            progress = _Progress(app, len(operations), report)
+            progress.saying(config.PROGRESS_MESSAGE)
             decided = _verdicts(operations, tools, report, progress, resolve)
             clock.at("worked out every verdict")
-
-            # Versions before anything reads them, so a note can name one. The
-            # refreshed libraries are taken back, because a bump changes what
-            # every later step should be reading.
-            was_reading = tools
-            tools = _review_versions(cam, decided, tools, report, writing)
-            clock.at("reviewed version numbers")
-            if tools is not was_reading:
-                # A number moved, so every verdict in hand names the version it
-                # had before. Only recomputed when the presets moved until now,
-                # which left a pass that bumped a version writing notes a press
-                # behind -- reported from real use as "UTP P Copper v1 - v1
-                # available", orange, telling somebody to update to the version
-                # they already had.
-                decided = _verdicts(operations, tools, report, progress, resolve)
-                clock.at("judged them all again, after the versions moved")
 
             # Presets first, notes second. A behind operation's note is worth
             # little until the newer values are pickable in its dropdown, and
             # update() leaves the tool and preset references stale, so the
             # operations are re-read and judged again afterwards rather than
             # reused.
+            progress.saying(config.PROGRESS_PRESETS)
             changed_presets = _ensure_presets(cam, decided, tools, report, writing)
             clock.at("presets in the document")
             if changed_presets:
@@ -969,7 +994,11 @@ def run(app, allow_writing=True):
 
             counts = dict(report.counts)
             path = report.close()
-            summary = "\n".join("%s: %d" % (k, counts[k]) for k in sorted(counts))
+            # One line rather than one per kind. This dialog is read standing
+            # at a machine; four stacked lines and two file paths was more
+            # screen than the answer was worth.
+            summary = ", ".join("%d %s" % (counts[k], k)
+                                for k in sorted(counts))
             planned = sum(1 for e in report.operations if e.get("would"))
             wrote = sum(1 for e in report.operations
                         if e.get("written") and e["written"] != "failed")
@@ -981,7 +1010,8 @@ def run(app, allow_writing=True):
                 # of it.
                 tail = config.STOOD_DOWN_TAIL % len(operations)
             elif writing:
-                headline = config.MARKED % (wrote, len(operations))
+                headline = (config.MARKED % (wrote, len(operations)) if wrote
+                            else config.MARKED_NOTHING % len(operations))
                 tail = config.MARKED_TAIL
             else:
                 headline = config.CHECKED % len(operations)
@@ -1001,12 +1031,15 @@ def run(app, allow_writing=True):
                                          "they were last generated with; "
                                          "regenerate before posting"))
 
-            events_seen = diagnostics.session_count()
-            if events_seen:
-                tail += "\n\n" + config.EVENTS_SEEN % (events_seen,
-                                                       diagnostics.session_path())
-            return path, counts, ("%s\n\n%s\n\n%s"
+            # The session's event log used to be named here as well. It is a
+            # developer's file, the path is long, and Write a debug report
+            # gathers it along with everything else -- so two paths in a
+            # dialog bought nothing that one did not.
+            return path, counts, ("%s\n%s\n\n%s"
                                   % (headline, summary or "nothing found", tail))
         except Exception:
             report.failed("the pass stopped early")
             return report.close(), {}, config.STOPPED_EARLY
+        finally:
+            if progress is not None:
+                progress.done()

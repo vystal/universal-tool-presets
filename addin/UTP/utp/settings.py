@@ -40,17 +40,24 @@ CONTROLS = (
     ("mark", "Notes and colours", "what", None),
     ("presets", "Add presets", "what", "MAY_ADD_PRESETS"),
     ("tidy", "Remove unused presets", "what", "MAY_TIDY_PRESETS"),
-    ("stamp", "Number the shop library", "what", "MAY_BUMP_LIBRARY_VERSIONS"),
+
+    ("summary", "Summary when it finishes", "say", "SHOW_SUMMARY"),
+    ("report", "Write a report each time", "say", "WRITE_A_REPORT"),
 )
 
-# The switches that must never come back on by themselves, because what they do
-# cannot be undone: stamp writes into the shop's shared library, the only write
-# that leaves this person's own document, and tidy deletes presets. Everything
-# else this add-in writes comes back off with Remove all notes.
-CANNOT_BE_TAKEN_BACK = ("stamp", "tidy")
+# The switch that must never come back on by itself, because what it does
+# cannot be undone: tidy deletes presets. Everything else this add-in writes
+# comes back off with Remove all notes.
+#
+# Stamping version numbers into the shop's shared library used to be the other
+# one, and was the only write that ever left this person's own document. It is
+# gone: the numbers decided nothing, and naming copies by them went wrong
+# repeatedly enough to cost more than they were ever worth.
+CANNOT_BE_TAKEN_BACK = ("tidy",)
 
 GROUPS = (("when", "When it checks on its own"),
-          ("what", "What it may write"))
+          ("what", "What it may write"),
+          ("say", "What it tells you"))
 
 # The tooltip on each box. These carry what the labels no longer have room
 # for, so each one has to make sense on its own.
@@ -75,11 +82,14 @@ MEANS = {
     "tidy": "Copies the add-in made that no operation points at any more. "
             "Never a preset somebody made, and the most recently retired "
             "copy is kept.",
-    "stamp": "Version numbers, written into the shop's own library so a note "
-             "can say v2 or v3 instead of just \"newer\". The only thing "
-             "here that writes outside your own document, and the only one "
-             "with no undo. Off, and the notes still say when something is "
-             "newer, they just cannot name which version.",
+    "summary": "The box listing what it found after Update presets. Off by "
+               "default: the notes on the operations are the answer, and the "
+               "progress bar already shows it working. Check only always "
+               "shows its summary, because looking is the whole point of it.",
+    "report": "A file in the reports folder every time it runs, saying what "
+              "it decided about each operation. Off by default: it is for "
+              "working out why something happened, not for every press. "
+              "Write a debug report gathers what matters either way.",
 }
 
 
@@ -146,12 +156,10 @@ def _read():
             # blunt: it stopped the add-in doing anything at all, which is its
             # own silent failure and is not what a missing file is evidence of.
             #
-            # What must not come back on by itself is the two that cannot be
-            # taken back: "stamp" writes version numbers into the shop's shared
-            # library, which is the only write that leaves this person's own
-            # document and has no undo, and "tidy" deletes presets. Notes and
-            # colours are reversible by Remove all notes, so they stay on their
-            # defaults and the add-in keeps working.
+            # What must not come back on by itself is the one that cannot be
+            # taken back: "tidy" deletes presets. Notes and colours are
+            # reversible by Remove all notes, so they stay on their defaults
+            # and the add-in keeps working.
             # Somebody chose switches on this machine and the file is not there
             # now. It was not this add-in that removed it -- save() only ever
             # replaces it -- so something outside did, and the likeliest thing

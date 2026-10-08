@@ -38,8 +38,6 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
         "toolId": None,
         "matched preset by": None,
         "libraryPresetId": None,
-        "libraryVersion": None,
-        "documentVersion": None,
         "record": None,
         "preset found in library": None,
         "why": "",
@@ -120,11 +118,6 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
     # would find nothing, and quietly stop offering newer versions.
     if library_preset is not None:
         verdict["libraryPresetId"] = library_preset.id
-        verdict["libraryVersion"] = library_preset.version
-        # Which version the document holds. A copy the add-in made recorded it
-        # at the time. The preset the tool arrived with never did, so it is
-        # only known when its values still match the library.
-        verdict["documentVersion"] = presets.version_of(preset)
 
     # Custom beats behind: somebody who changed values on purpose is not
     # told to update. Compared against the preset inside this document,
