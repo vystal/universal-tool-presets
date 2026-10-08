@@ -12,7 +12,6 @@ created presets; creating them makes it necessary again, for these presets
 only.
 """
 
-import datetime
 import json
 
 from . import compat, config, values
@@ -121,23 +120,6 @@ def source_of(preset):
     return found.value if found else None
 
 
-def claiming_latest(tool, library_preset_id):
-    """The copy that currently claims to be the newest, if there is one.
-
-    Only a copy still carrying the suffix counts. Matching on the attribute
-    alone finds retired copies too, and since their values are stale by
-    definition the plan would retire them again and add another copy on every
-    single pass, growing the dropdown without end.
-    """
-    try:
-        for index in range(tool.presets.count):
-            preset = tool.presets.item(index)
-            if (source_of(preset) == library_preset_id
-                    and (preset.name or "").endswith(config.LATEST_SUFFIX)):
-                return preset
-    except Exception:
-        pass
-    return None
 
 
 def represented(tool, library_preset_id):
@@ -193,7 +175,16 @@ def _ours_by_source(tool, library_tool):
 
 
 def _is_newest(preset, library_preset):
-    """Whether this copy holds what the library holds now."""
+    """Whether this copy holds what the library holds now.
+
+    A library preset that read no values at all makes both comparisons below
+    vacuously true, so every copy answers yes, _split keeps the first and
+    hands the rest to the tidy. state.reconcile already refuses to judge
+    against an empty reading for exactly this reason; the path that deletes
+    things had no such guard.
+    """
+    if not library_preset.values:
+        return False
     snapshot = stood_for(preset)
     if snapshot is None:
         # The preset the tool arrived with, or a copy from before copies
@@ -213,14 +204,39 @@ def _split(copies, library_preset):
     other match is just another old copy, and the tidy will offer it once
     nothing is using it.
     """
+    claims = [(i, c) for i, c in copies if _is_newest(c, library_preset)]
     newest = None
-    others = []
-    for index, copy in copies:
-        if newest is None and _is_newest(copy, library_preset):
-            newest = (index, copy)
-            continue
-        others.append((index, copy))
+    if claims:
+        # The one whose own values are the library's, if any of them is.
+        newest = next((pair for pair in claims
+                       if not values.differences(library_preset.values,
+                                                 values.scalars(pair[1]))),
+                      claims[0])
+    # By the preset object, not the tuple: the comprehension above builds
+    # fresh tuples, so comparing those compares nothing.
+    others = [pair for pair in copies
+              if newest is None or pair[1] is not newest[1]]
     return newest, others
+
+
+def _orphans(tool, library_tool):
+    """Our copies whose source preset is not in the library any more.
+
+    A preset deleted or re-created at the shop leaves these behind. They are
+    invisible to _ours_by_source, which groups by a source that no longer
+    resolves, so nothing renames them and nothing cleans them up -- while the
+    name they hold is still taken.
+    """
+    found = []
+    try:
+        for index in range(tool.presets.count):
+            preset = tool.presets.item(index)
+            source = source_of(preset)
+            if source is not None and source not in library_tool.presets:
+                found.append((index, preset))
+    except Exception:
+        return []
+    return found
 
 
 def wanted_names(tool, library_tool, used_ids=()):
@@ -244,6 +260,20 @@ def wanted_names(tool, library_tool, used_ids=()):
     renames = []
     try:
         taken = set(_names(tool))
+        # Orphans first, so the name one of them is holding is free by the
+        # time a copy that genuinely is the newest asks for it. A copy whose
+        # source preset has gone cannot be the newest of anything, so the
+        # marker comes off whatever else happens.
+        for _index, copy in _orphans(tool, library_tool):
+            name = copy.name or ""
+            if not name.endswith(" " + config.LATEST_SUFFIX):
+                continue
+            bare = without_suffix(name)
+            wanted = bare if bare not in (taken - {name}) else spare_name(
+                bare, taken - {name})
+            taken.discard(name)
+            taken.add(wanted)
+            renames.append((copy, wanted))
         for source, copies in _ours_by_source(tool, library_tool).items():
             library_preset = library_tool.presets.get(source)
             if library_preset is None:
@@ -262,17 +292,35 @@ def wanted_names(tool, library_tool, used_ids=()):
             # the time it asks for it. Done the other way round, a stale copy
             # still holding "(latest)" blocked the new one from taking it and
             # the new one stayed bare beside its predecessor.
-            for position, (_index, copy) in enumerate(older):
-                if (copy.name or "") == bare:
+            claimed_bare = False
+            for _index, copy in older:
+                name = copy.name or ""
+                others = taken - {name}
+                # A copy still carrying the newest marker has to lose it --
+                # it is not the newest any more and two entries cannot both
+                # claim to be. That is the one rename forced on a copy
+                # somebody is sitting on.
+                demoted = name.endswith(" " + config.LATEST_SUFFIX)
+                if name == bare and not claimed_bare:
+                    claimed_bare = True
                     continue
-                # Its own name does not count against it. Left in, a copy
-                # already correctly called "(previous)" found that name taken
-                # -- by itself -- and was renamed to "(previous 2)" on every
-                # pass, which is a rename under a live operation for nothing
-                # at all.
-                others = taken - {copy.name or ""}
-                rename(copy, bare if position == 0 and bare not in others
-                       else spare_name(bare, others))
+                if copy.id in used_ids and not demoted and name != bare:
+                    # Somebody chose this entry by this name. used_ids was
+                    # taken as a parameter and never read, so the docstring's
+                    # promise -- nothing is renamed to make room for something
+                    # newer -- held only by accident, when the names happened
+                    # to coincide. Rename the shop preset and the copy an
+                    # operation was running was dragged onto the new name,
+                    # which is the 8 October bench report all over again.
+                    continue
+                if not claimed_bare and bare not in others:
+                    rename(copy, bare)
+                    claimed_bare = True
+                else:
+                    # Two older copies sharing the bare name both hit the
+                    # short-circuit above and neither was ever renamed, so the
+                    # duplicate this function exists to resolve survived it.
+                    rename(copy, spare_name(bare, others))
             if newest is not None:
                 rename(newest[1], bare if not older else latest_name(bare))
     except Exception:
@@ -389,10 +437,18 @@ def apply(cam, tool, library_preset, intended):
                                  json.dumps(library_preset.values))
             compat.stamp(fresh)
         except Exception:
-            # Without this the copy cannot be tied back to the library, so an
-            # operation moved onto it would look as though its preset had been
-            # retired. Better to say so than to leave a preset that lies.
-            done.append("COULD NOT STAMP the new preset")
+            # Without this the copy cannot be tied back to the library, so
+            # nothing can recognise it later: missing() would ask for the same
+            # preset again and another orphan would appear on every pass. It
+            # is taken back out and the caller is told, rather than left
+            # behind and reported as a write.
+            try:
+                tool.presets.remove(tool.presets.count - 1)
+            except Exception:
+                pass
+            cam.documentToolLibrary.update(tool, False)
+            raise RuntimeError("could not stamp the new copy of %s, so it was "
+                               "taken back out" % library_preset.name)
         done.append("added %s" % fresh.name)
         if missing:
             done.append("could not set %d values: %s"
@@ -411,14 +467,19 @@ def remove(cam, tool, rows):
     each one goes.
     """
     done = []
-    for row in rows:
-        index, name = row[0], row[1]
-        held = row[3] if len(row) > 3 else None
+    for index, name, held in rows:
+        # Unpacked, not indexed. This read the id from row[3] and fell back to
+        # None when it was not there, which is what happened the moment the
+        # rows lost their version field and became three long: the id check
+        # below -- the one that stops a preset an operation is running being
+        # deleted because another copy shares its name -- was skipped on every
+        # removal and nothing said so. Unpacking makes a change of shape an
+        # error instead of a silent hole.
         try:
             if tool.presets.item(index).name != name:
                 done.append("SKIPPED %s: the list moved under us" % name)
                 continue
-            if held is not None and tool.presets.item(index).id != held:
+            if tool.presets.item(index).id != held:
                 # Belt and braces beside the name: two presets on one tool can
                 # share a name, and the id is what an operation points at.
                 done.append("SKIPPED %s: not the preset that was chosen" % name)

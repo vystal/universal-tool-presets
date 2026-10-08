@@ -58,10 +58,6 @@ class LibraryPreset:
         # was newer. A preset is now either what the library holds or it is
         # not, which is the only question anybody asked.
 
-    @property
-    def label(self):
-        """What a note calls this UTP."""
-        return self.name
 
 
 class LibraryTool:
@@ -103,12 +99,6 @@ class LibraryTool:
             self.presets[preset.id] = preset
 
 
-def _attribute(owner, key):
-    try:
-        found = owner.attributes.itemByName(config.ATTRIBUTE_GROUP, key)
-    except Exception:
-        return None
-    return found.value if found else None
 
 
 def tool_id(tool):
@@ -170,11 +160,6 @@ def incomplete():
     return bool(_cache.get("missed"))
 
 
-def age():
-    """How long ago the libraries were read, in seconds, or None."""
-    if _cache["tools"] is None:
-        return None
-    return time.time() - _cache["read at"]
 
 
 def cached(report, do_events=None, force=False, stale_after=None):

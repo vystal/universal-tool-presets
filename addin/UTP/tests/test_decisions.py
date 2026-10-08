@@ -285,7 +285,12 @@ def test_setups_are_not_marked_at_all():
     changes = marks.strip(owner)
     assert changes.get("note", {}).get("to") == "my own words", changes
     # and the documentation says they are not marked
-    assert "not marked" in config.INSTRUCTIONS.lower()
+    from utp import instructions
+    # The live help page. There used to be a second copy of the
+    # instructions in config and this asserted against that one,
+    # which is how it stayed green while the copy people actually
+    # read drifted.
+    assert "no note" in instructions._PAGE.lower()
 
 
 def test_clearing_a_note_during_their_own_edit_leaves_it_cleared():
@@ -940,8 +945,13 @@ def test_nothing_says_the_latest_suffix_alone_identifies_the_preset():
 
     The note already names the UTP, so the instruction has to lean on that.
     """
-    for where in (config.INSTRUCTIONS,):
-        said = where.lower()
+    from utp import instructions
+
+    for where in (instructions._PAGE,):
+        # Whitespace flattened: the page wraps "the name in the note" across a
+        # line, and a test that depends on where the wrapping falls is a test
+        # that fails on a reflow and says nothing about the wording.
+        said = " ".join(where.lower().split())
         if "(latest)" not in said:
             continue
         assert "name in the note" in said, (
@@ -1162,3 +1172,174 @@ def test_three_generations_settle_and_do_not_churn():
                         copy("P Copper (latest)", 3000.0, "g3")])
     assert presets.wanted_names(settled, library_tool, {"g1", "g2", "g3"}) == [], (
         "it renames something on every pass")
+
+
+def test_removal_checks_the_id_and_not_just_the_name():
+    """Two copies on one tool can share a name. The id is what decides.
+
+    remove() read the id out of row[3] and fell back to None when it was not
+    there. The moment removable() stopped carrying a version field its rows
+    became three long, so the id was never checked on any removal and nothing
+    said so -- leaving the name as the only guard against deleting the copy an
+    operation is actually running.
+    """
+    class Preset:
+        def __init__(self, name, ident):
+            self.name, self.id = name, ident
+
+    class Tool:
+        def __init__(self, items):
+            self._items = list(items)
+            self.removed = []
+
+            class Coll:
+                count = len(self._items)
+                item = lambda _self, i: self._items[i]
+                remove = lambda _self, i: self.removed.append(self._items[i].id)
+            self.presets = Coll()
+
+    class Cam:
+        class documentToolLibrary:
+            @staticmethod
+            def update(_tool, _flag):
+                pass
+
+    # Two copies, one name. The one at index 1 is the one chosen for removal.
+    tool = Tool([Preset("P Copper", "in-use"), Preset("P Copper", "spare")])
+    done = remove_with(tool, Cam, [(1, "P Copper", "spare")])
+    assert tool.removed == ["spare"], done
+
+    # And if the list has shifted so index 1 is now the one in use, the id
+    # check has to stop it -- the name alone cannot.
+    tool = Tool([Preset("P Copper", "spare"), Preset("P Copper", "in-use")])
+    done = remove_with(tool, Cam, [(1, "P Copper", "spare")])
+    assert tool.removed == [], (
+        "deleted a preset an operation is running because the name matched: %s"
+        % done)
+    assert any("SKIPPED" in line for line in done), done
+
+
+def remove_with(tool, cam, rows):
+    return presets.remove(cam, tool, rows)
+
+
+GONE_FROM_EVERY_SCREEN = (
+    # Commands that were renamed or dropped.
+    "Check this document",
+    "Pick up library changes",
+    "Check without changing anything",
+    # Version numbers, removed with versions.py.
+    "version number",
+    "v3 available",
+    "v2 - v3",
+    "numbering the shop library",
+    "MAY_BUMP_LIBRARY_VERSIONS",
+    # Setups were marked once; they are not now.
+    "setup note",
+    # And the panel moved.
+    "Utilities tab",
+)
+
+
+def test_nothing_anybody_reads_describes_a_feature_that_is_gone():
+    """The documents, not just the code.
+
+    There was already a test for removed button names across config strings
+    and the help page, and it passed the whole time the README, the
+    machinists' page and a 66-line fallback copy of the instructions were
+    describing version numbers, setup notes, a Utilities tab and two commands
+    that no longer exist. It only read the code.
+
+    Everything a person can read is in here now: the add-in's own strings, the
+    help page, the README and docs/. A feature removed in the code and left
+    standing in the prose fails this.
+    """
+    from utp import instructions
+
+    root = os.path.join(HERE, "..", "..", "..")
+    screens = {"the help page": instructions._PAGE}
+    for name in dir(config):
+        said = getattr(config, name)
+        if name.isupper() and isinstance(said, str) and len(said) > 30:
+            screens["config.%s" % name] = said
+    for where in ("README.md", os.path.join("docs", "what-the-notes-mean.md")):
+        path = os.path.join(root, where)
+        if os.path.exists(path):
+            screens[where] = open(path, encoding="utf-8").read()
+
+    wrong = []
+    for where, said in sorted(screens.items()):
+        low = said.lower()
+        for phrase in GONE_FROM_EVERY_SCREEN:
+            if phrase.lower() in low:
+                wrong.append("%s still says %r" % (where, phrase))
+    assert wrong == [], "\n".join(wrong)
+
+
+def _copy_of(library_preset, name, stood_for, ident, holds=None):
+    """A copy the add-in would have made, with its recorded snapshot."""
+    made = FakePreset(
+        name,
+        held={config.KEY_SOURCE_PRESET: library_preset.id,
+              config.KEY_VALUES: json.dumps({"tool_feedCutting": stood_for})},
+        params={"tool_feedCutting": stood_for if holds is None else holds})
+    made.id = ident
+    return made
+
+
+def test_a_copy_whose_preset_is_gone_does_not_keep_the_latest_marker():
+    """It cannot be the newest of anything, and the name it holds blocks one
+    that can.
+
+    A preset deleted or re-created at the shop leaves a copy behind whose
+    source no longer resolves. _ours_by_source skips those, so nothing renamed
+    them and nothing cleaned them up -- while the name stayed taken. The copy
+    that genuinely held the library's values could not take "(latest)" and
+    stayed bare, so the note's instruction, pick the entry ending (latest),
+    pointed at values OLDER than the operation was already running.
+    """
+    library_preset = FakeLibraryPreset("FAST", {"tool_feedCutting": 1500.0})
+    library_tool = type("T", (),
+                        {"presets": {library_preset.id: library_preset}})()
+
+    orphan = FakePreset(
+        "FAST " + config.LATEST_SUFFIX,
+        held={config.KEY_SOURCE_PRESET: "a-preset-that-was-deleted",
+              config.KEY_VALUES: json.dumps({"tool_feedCutting": 900.0})},
+        params={"tool_feedCutting": 900.0})
+    orphan.id = "orphan"
+    on_it = _copy_of(library_preset, "FAST", 1000.0, "in-use")
+    genuine = _copy_of(library_preset, "FAST", 1500.0, "genuine")
+
+    wanted = dict((p.id, w) for p, w in presets.wanted_names(
+        FakeTool([orphan, on_it, genuine]), library_tool, {"in-use"}))
+    assert wanted.get("orphan") not in (None, "FAST " + config.LATEST_SUFFIX), (
+        "a copy whose preset is gone kept the newest marker: %s" % wanted)
+    assert wanted.get("genuine") == "FAST " + config.LATEST_SUFFIX, (
+        "the copy holding the library's values could not take the marker: %s"
+        % wanted)
+    assert len(set(wanted.values())) == len(wanted), wanted
+
+
+def test_the_newest_is_the_one_whose_own_values_are_the_librarys():
+    """A copy can record the right values and hold the wrong ones.
+
+    apply() writes the snapshot as the full library values even for values
+    that would not go in -- that is what stopped a copy being added on every
+    pass. So a copy whose values were edited by hand, or never took, answers
+    "I am the newest" for ever. It was then kept, and the copy that really did
+    hold the library's values was offered to the tidy for deletion.
+    """
+    library_preset = FakeLibraryPreset("FAST", {"tool_feedCutting": 1500.0})
+    library_tool = type("T", (),
+                        {"presets": {library_preset.id: library_preset}})()
+
+    # Records 1500, holds 99.
+    tampered = _copy_of(library_preset, "FAST", 1500.0, "tampered", holds=99.0)
+    genuine = _copy_of(library_preset, "FAST", 1500.0, "genuine")
+    tool = FakeTool([tampered, genuine])
+
+    offered = [row[2] for row in presets.removable(tool, library_tool, set())]
+    assert "genuine" not in offered, (
+        "offered the copy that actually holds the library's values: %s" % offered)
+    assert offered == ["tampered"], offered

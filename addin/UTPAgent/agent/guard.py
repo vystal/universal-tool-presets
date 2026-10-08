@@ -81,7 +81,6 @@ def libraries_used(app):
     TEST library, the document is not the one to be writing in.
     """
     from utp import library, passes
-    import adsk.cam
     cam = app.activeDocument.products.itemByProductType("CAMProductType")
     shelf = passes._document_tools(cam)
 

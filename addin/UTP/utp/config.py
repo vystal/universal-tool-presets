@@ -243,7 +243,6 @@ CAM_WORKSPACES = ("CAMEnvironment",)
 
 # Only Hub libraries hold UTPs. Local libraries are somebody's own business:
 # a tool from one reads as "not a UTP tool" and is left alone.
-LIBRARY_LOCATION = "hub"
 
 # ---------------------------------------------------------------------------
 # Comparing values
@@ -594,10 +593,9 @@ COMMAND_NAME = "Update presets"
 # somebody comes to grief here.
 COMMAND_TOOLTIP = ("Brings this document up to date: notes and colours on every "
                    "operation, and the newer presets added to its dropdowns. "
-                   "Writes version numbers to the shop library too, unless you "
-                   "turn that off under Switches. Nothing is saved, and Remove "
-                   "all notes takes the document side back out. Use Check only "
-                   "to look first.")
+                   "Writes nothing outside this document. Nothing is saved, "
+                   "and Remove all notes takes it back out. Use Check only to "
+                   "look first.")
 
 UNMARK_COMMAND_ID = "UTPRemoveMarks"
 UNMARK_COMMAND_NAME = "Remove all notes"
@@ -648,16 +646,15 @@ SWITCHES_SAVED = "Switches saved.\n\n%s"
 SWITCHES_UNCHANGED = "Nothing changed."
 SWITCHES_FOOTER = ("These are for this machine, not for the document. They "
                    "stay set until you change them.")
-SWITCHES_GONE = ("Your saved switches have gone missing, so the two that "
-                 "cannot be undone have been left off: numbering the shop "
-                 "library, and removing unused presets.\n\nEverything else is "
-                 "running normally. This machine has chosen switches before "
-                 "and the file is not there now; the usual reason is a cloud "
-                 "sync renaming it, since the folder lives under Documents, "
-                 "which OneDrive often takes over.\n\nSet them how you want "
-                 "them and save. That puts it back.")
 SWITCHES_DAMAGED = ("The saved switches could not be read, so everything "
                     "is off. Set them how you want them and press OK.")
+SWITCHES_GONE = ("Your saved switches have gone missing, so the one that "
+                 "cannot be undone has been left off: removing unused "
+                 "presets.\n\nThis add-in never deletes that file, so "
+                 "something else did -- most likely a cloud sync resolving a "
+                 "conflict by renaming it. Everything else is on its normal "
+                 "setting.\n\nSet them how you want them and press OK, and "
+                 "they will be remembered again.")
 
 # Said by the buttons that write, when the add-in is switched off. Rather than
 # doing nothing and leaving somebody wondering which of the two it was.
@@ -671,78 +668,14 @@ HELP_COMMAND_ID = "UTPHelp"
 HELP_COMMAND_NAME = "Instructions"
 HELP_COMMAND_TOOLTIP = "What the notes mean and what to do about them."
 
-INSTRUCTIONS = """What this does
+# The instructions themselves used to be duplicated here, as a fallback for
+# when the HTML page could not be written. Sixty-six lines of it, and a
+# second source of truth that stopped being true: it showed version
+# numbers, said nothing happens when a document opens, and promised a
+# report on every check. instructions.py is the one that is maintained.
+INSTRUCTIONS_FAILED = ("The instructions page could not be written. It "
+                      "normally opens from the UTP panel.")
 
-Your tools' feeds and speeds live in the shop libraries. When somebody
-changes them there, documents already made know nothing about it. This marks
-each operation with where it stands, so you can see it and update it.
-
-It never changes an operation's feeds. Only you do that, by picking a preset.
-
-If a note says "changes the cut", the newer preset moves a depth of cut or a
-stepover and not just a feed. Pick it as usual, then regenerate the operation
-before posting.
-
-
-The notes on your operations
-
-   `UTP Titanium v3`                    green    on the current feeds
-   `UTP Titanium v2 - v3 available`     yellow   something newer exists
-   `UTP Custom`                         grey     its feeds were changed here
-   no note                              never put on a shop preset
-
-To update a yellow one: open the operation, go to the preset dropdown, pick
-the entry that starts with the name in the note and ends (latest). A tool used
-for two materials has one of those for each, so the suffix alone is not enough
-to go on. The note turns green. Ctrl+Z puts the preset back.
-
-If you would rather leave it, leave it. Nothing will chase you.
-
-
-Setups, folders and patterns are not marked
-
-Only operations carry notes. Setups used to carry a count of what was inside
-them; folders and patterns hide their operations the same way and never had
-one, so it was cover nobody could rely on. Old setup notes come off the next
-time a job is checked.
-
-
-When it runs
-
-When you save a document, and when you change an operation. Nothing else:
-nothing on opening a file, nothing in the background.
-
-
-Turning it off
-
-Switches has a checkbox for each of those, and one at the top for the whole
-add-in. Off means off: nothing happens on its own, and the buttons that
-change things say so instead of doing it.
-
-Those are for your machine, not for the document, and they stay how you set
-them.
-
-Clearing a note by hand is not a switch. A note says where an operation
-stands, so the next save works it out and writes it again. If you clear one
-while you are editing it will stay clear until then. To stop the notes for
-good, use Switches.
-
-
-Things worth knowing
-
-Your own notes are kept. It owns only the line wrapped in ` marks. Write
-what you like above or below it, in any words you like, and it stays exactly
-as you typed it.
-Your own icon colours are kept, and put back if you remove the marks.
-Older jobs stay silent. Nothing is marked until somebody uses a shop preset.
-Every check writes a report to the reports folder, saying what it found.
-If something looks wrong, "Write a debug report" makes a file to send on."""
-
-# Where that dropdown goes, first of these that exists on this build. The
-# Utilities tab is wanted; the rest are there so a build that names its
-# panels differently still gets the menu somewhere rather than nowhere. The
-# debug report lists every panel this Fusion actually has, which is how this
-# list gets corrected rather than guessed at again.
 CANDIDATE_PANELS = [
     ("CAMEnvironment", "CAMUtilityPanel"),
     ("CAMEnvironment", "CAMUtilitiesPanel"),

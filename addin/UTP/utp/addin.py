@@ -205,7 +205,7 @@ def _help(app):
     from . import instructions
     path = instructions.show(version.VERSION)
     if path is None:
-        return config.INSTRUCTIONS, None
+        return config.INSTRUCTIONS_FAILED, None
     return None, None
 
 

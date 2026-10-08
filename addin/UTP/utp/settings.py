@@ -73,15 +73,16 @@ MEANS = {
     "edit": "Changing an operation updates that one operation's note "
             "straight away, inside your own edit, so one undo takes back "
             "both.",
-    "mark": "The notes and icon colours on your operations and setups. Off, "
+    "mark": "The notes and icon colours on your operations. Off, "
             "and it reads and reports but writes nothing to them at all, "
             "down to the hidden record of which preset they came from.",
     "presets": "Presets a tool has in the shop library that this document "
                "has never seen, so one added at the shop can be picked in a "
                "job that was saved before it existed.",
-    "tidy": "Copies the add-in made that no operation points at any more. "
-            "Never a preset somebody made, and the most recently retired "
-            "copy is kept.",
+    "tidy": "Copies the add-in made that no operation points at any more, "
+            "so the dropdown goes back to one entry once everybody has moved "
+            "to the newer preset. Never a preset somebody made, and never one "
+            "an operation is sitting on.",
     "summary": "The box listing what it found after Update presets. Off by "
                "default: the notes on the operations are the answer, and the "
                "progress bar already shows it working. Check only always "

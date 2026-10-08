@@ -13,16 +13,16 @@ changed behind your back, and an operation with no note is not a problem.
 ### 🟢 Green — nothing to do
 
 ```
-`UTP Titanium T48 Roughing v3`
+`UTP Titanium T48 Roughing`
 ```
 
 This operation is running the shop's current feeds and speeds for that tool.
-The name tells you which set, and `v3` is which version of it.
+The name tells you which set.
 
-### 🟡 Yellow — there is a newer version
+### 🟡 Yellow — there is something newer
 
 ```
-`UTP Titanium T48 Roughing v2 - v3 available`
+`UTP Titanium T48 Roughing - update available`
 ```
 
 Somebody has changed the shop's feeds for that tool since this operation was
@@ -52,18 +52,13 @@ nothing to say about it, so nothing is said.
 
 ---
 
-## The note on a setup
+## Setups, folders and patterns carry no note
 
-A collapsed setup hides its operations, so each setup carries a summary:
-
-| | |
-| --- | --- |
-| 🟡 ``UTP 2 of 7 need updating`` | worth opening up and looking |
-| 🟢 ``UTP 7 tracked, up to date`` | nothing inside needs attention |
-| no note | nothing in it is on a shop preset |
-
-The count is only of operations the system is tracking. A setup with twenty
-older operations and one tracked one says `1 tracked`.
+Only operations are marked. A collapsed setup used to carry a count of what
+was inside it, and that was dropped: folders and patterns hide their
+operations in exactly the same way and never had one, so it was cover you
+could not rely on. To see where a folded-up job stands, open it up or press
+**Update presets** in the UTP panel.
 
 ---
 
@@ -81,26 +76,23 @@ keeps the old shape while the numbers are new, and the file looks ready when it
 is not.
 
 **I picked the wrong preset.** Ctrl+Z puts the preset back. The note is worked
-out again the next time the operation is looked at, so it catches up on the next
-save.
+out again the next time the operation is looked at — finishing the edit is
+enough.
 
 **I pressed Check and want it all back.** Press *Remove all notes*. Ctrl+Z will
-not do it: measured on 6 October, a check wrote four notes and two setup notes,
-one undo was run, and none of it reverted. What this add-in writes to notes,
+not do it: measured on 6 October, a check wrote four notes, one undo was run,
+and none of it reverted. What this add-in writes to notes,
 colours and hidden records is not in Fusion's undo stack. Nothing is saved by a
 check either, so closing the job without saving leaves it as it was.
 
 **I wrote my own note on an operation.** It is still there, underneath the
 line wrapped in ` marks. Your text is never touched.
 
-**Why does one say `v2` and another just have a name?** The version numbers
-only exist for presets the shop has started tracking. Where there is no
-number, the note says `update available` instead of naming a version.
-
 **Two presets in the dropdown look almost the same.** The one ending
-`(latest)` is the current shop version. Others are older versions kept
-because something in this file is still using them, or in case you want to
-go back. `Titanium v2` was the shop's feeds before the current ones.
+`(latest)` holds the shop's current feeds; the other is what your operations
+are on now. Once every operation has moved across, the old entry disappears
+by itself and the `(latest)` marker comes off, so you are back to one entry
+per preset.
 
 **An operation says yellow but I know the feeds are fine.** They probably
 are. Yellow means the shop's numbers have moved on, not that yours are
@@ -114,6 +106,10 @@ The notes are ordinary Fusion notes; they do not need the add-in to be read.
 
 ## If something looks wrong
 
-Every check writes a report to `Documents\UTP diagnostics`, saying what it
-found and what it changed, one line at a time. If an operation is marked in
-a way that makes no sense, that file will say why it was marked.
+Press **Write a debug report** in the UTP panel. It writes one file to
+`Documents\UTP diagnostics` with everything worth knowing about this machine,
+this document and the libraries. Send that file on.
+
+If you want a report of every check instead, turn **Write a report each time**
+on under *Switches*. It is off by default, because a folder filling up with
+reports nobody reads is just clutter.

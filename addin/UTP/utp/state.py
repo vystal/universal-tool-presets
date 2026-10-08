@@ -54,8 +54,18 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
 
     library_tool, how, found = identity.match(tool, library_tools, tool_id)
     verdict["matched by"] = how
-    # Kept so nothing has to serialise the tool again to learn its id.
+    # Kept so nothing has to serialise the tool again to learn its id. This is
+    # the id of the tool IN THIS DOCUMENT, which is what the document shelf is
+    # keyed by.
     verdict["toolId"] = found
+    # And the library tool's own id, which is a different thing the moment the
+    # match was made by description rather than by id -- by definition, since
+    # a description match happens only because the document's id is not in the
+    # library. Callers were using toolId to look up both, so on that path the
+    # library tool came back None, every preset step was skipped by a bare
+    # continue, and the operation got a note saying "update available" with
+    # nothing to pick and nothing recorded anywhere.
+    verdict["libraryToolId"] = library_tool.id if library_tool is not None else None
     if library_tool is None:
         if how.startswith(identity.AMBIGUOUS):
             # Two tools in the shop libraries answer to this description, so

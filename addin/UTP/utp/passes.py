@@ -120,15 +120,6 @@ def _id_by_description(shelf):
     return resolve
 
 
-def _document_tool(cam, tool_id, shelf=None):
-    """A tool in the document by id, from a map built once if given one.
-
-    update() leaves every tool reference taken before it invalid, so a map
-    built before one has to be thrown away rather than reused.
-    """
-    if shelf is not None:
-        return shelf.get(tool_id)
-    return _document_tools(cam).get(tool_id)
 
 
 class _Progress:
@@ -247,7 +238,7 @@ def _verdicts(operations, tools, report, progress=None, resolve=None):
     return found
 
 
-def _sync_and_tidy(cam, in_use, used_ids, report, writing):
+def _bring_in_unseen(cam, in_use, report, writing):
     """Bring in UTPs the document has never seen, and drop copies nothing needs.
 
     Returns True if anything was written, since update() leaves every tool
@@ -271,6 +262,8 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing):
                             tool=library_tool.description, presets=names)
             else:
                 for library_preset in absent:
+                    if tool is None:
+                        break
                     try:
                         done = presets.apply(cam, tool, library_preset,
                                              {"add": library_preset.name})
@@ -281,8 +274,13 @@ def _sync_and_tidy(cam, in_use, used_ids, report, writing):
                     except Exception:
                         report.failed("could not bring in %s"
                                       % library_preset.name)
-                shelf = _document_tools(cam)   # update() invalidated them
-                tool = shelf.get(tool_id)
+                    # Inside the loop. apply() ends in update(), which leaves
+                    # every tool reference stale, so this sat after the loop
+                    # and the second and later presets on one tool were added
+                    # through a dead object -- lost, while the report said
+                    # they had been brought in.
+                    shelf = _document_tools(cam)
+                    tool = shelf.get(tool_id)
                 if tool is None:
                     continue
 
@@ -403,7 +401,6 @@ def _presets_in_use(cam, report):
             report.failed("could not read a preset's id (%s), so nothing is "
                           "safe to remove" % exc)
     return ids
-    return wrote
 
 
 def _name_copies(cam, in_use, used_ids, report, writing):
@@ -411,7 +408,7 @@ def _name_copies(cam, in_use, used_ids, report, writing):
 
     Its own pass, at the very end, because naming depends on what the dropdown
     finally holds: whether a copy is the only one of its preset decides
-    whether it carries (latest) at all. It used to sit inside _sync_and_tidy,
+    whether it carries (latest) at all. It used to sit inside the function that brings in unseen presets,
     which runs BEFORE presets are added, so a copy added in a pass could not
     be named until the next one -- measured on the bench, two passes to settle
     where one should do.
@@ -458,7 +455,11 @@ def _ensure_presets(cam, decided, tools, report, writing):
     in_use = {}
     for operation, verdict in decided:
         found = verdict.get("toolId")
-        library_tool = tools.get(found) if found else None
+        # The library by its own id, the document shelf by the document's.
+        # One value was doing both jobs and they are only the same value when
+        # the match was exact.
+        in_library = verdict.get("libraryToolId") or found
+        library_tool = tools.get(in_library) if in_library else None
         if library_tool is not None:
             in_use[found] = library_tool
         if verdict["state"] != state.BEHIND:
@@ -476,7 +477,7 @@ def _ensure_presets(cam, decided, tools, report, writing):
         # below invalidates every tool object gathered here.
         wanted.setdefault(library_preset.id, (found, library_preset))
 
-    wrote = _sync_and_tidy(cam, in_use, used_ids, report, writing)
+    wrote = _bring_in_unseen(cam, in_use, report, writing)
 
     # "if not wanted: return" used to sit here, and it skipped the tidy and the
     # naming below for the one case they exist to handle. Nothing is "wanted"
@@ -530,6 +531,17 @@ def _ensure_presets(cam, decided, tools, report, writing):
     return wrote
 
 
+def _setups_of(cam, report):
+    """Every setup, without walking what is inside them."""
+    found = []
+    try:
+        for index in range(cam.setups.count):
+            found.append(cam.setups.item(index))
+    except Exception:
+        report.failed("could not read the setups")
+    return found
+
+
 def _clear_setup_marks(cam, report, writing):
     """Take the add-in's line and colour off every setup.
 
@@ -557,7 +569,10 @@ def _clear_setup_marks(cam, report, writing):
     Nothing replaces it. The operations carry their own notes and colours, which
     is where the information belongs.
     """
-    for setup, _operations in by_setup(cam, report):
+    # cam.setups directly. This asked by_setup for every setup and every
+    # operation beneath it and then used only the setups -- a whole extra
+    # traversal of the document, on every pass, thrown away.
+    for setup in _setups_of(cam, report):
         try:
             changes = marks.strip(setup)
         except Exception:

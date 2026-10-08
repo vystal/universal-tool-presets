@@ -8,15 +8,15 @@ about it, so a preset fixed once has to be fixed again in every file that used
 it. This marks each operation with where it stands, and lets somebody bring
 one up to date by picking the newer preset from the dropdown they already use.
 
-Nothing is imposed. There is no panel, no dialog and no nagging: an operation
-either carries a note or it does not.
+Nothing is imposed. An operation either carries a note or it does not, and
+nothing blocks anybody from posting a job.
 
 ## What an operation's note says
 
 | Note | Icon | Means |
 | --- | --- | --- |
-| ``UTP Titanium v3`` | green | on the newest version |
-| ``UTP Titanium v2 - v3 available`` | yellow | a newer version exists |
+| ``UTP Titanium`` | green | on the shop's current values |
+| ``UTP Titanium - update available`` | yellow | the shop library holds something newer |
 | ``UTP Custom`` | grey | it was on a UTP and its values have since been changed |
 | none | none | never on a UTP, or its tool is not in a shop library |
 
@@ -37,8 +37,8 @@ irm https://raw.githubusercontent.com/vystal/universal-tool-presets/main/tools/i
 ```
 
 Once per machine, no admin rights, nothing written outside your own Fusion
-add-ins folder. Then start Fusion; UTP is in the Utilities tab of the
-Manufacture workspace.
+add-ins folder. Then start Fusion; UTP is in the Milling tab of the
+Manufacture workspace, between Setup and 2D.
 
 That installs three small files that never change. They fetch the add-in
 itself from the latest release and keep it up to date, so updating the shop
@@ -65,7 +65,8 @@ by running the add-in at all: the loader fetches from it on every start.
 python tools/package.py
 ```
 
-Writes `dist/utp.zip` and `dist/VERSION`. Publish a GitHub release with both
+Writes `dist/utp.zip`, `dist/VERSION` and `dist/SHA256`. Publish a GitHub
+release with all three
 as assets; the loader reads `releases/latest/download/`, so that is what puts
 it in service. The version comes from `addin/UTP/utp/version.py` and nowhere
 else.
@@ -125,7 +126,7 @@ document with `UTP TEST` in its name, and:
 python tools/ask_fusion.py addin/UTP/tests/run_integration.py --writes
 ```
 
-Seventeen checks: the listeners are attached and survive a garbage collection,
+Twenty-nine checks: the listeners are attached and survive a garbage collection,
 an edit is marked whether the library cache is cold or warm, a save marks and
 then settles and keeps to its budget, a check settles, a check adds one preset
 when the library moves and never a second, removing the notes removes everything
@@ -147,8 +148,8 @@ python tools/ask_fusion.py -c 'say(app.version)'
 ## Changing what it says
 
 Everything a person sees in Fusion is in `addin/UTP/utp/config.py`: what a
-note says, its colour, how a version is written, what the presets in a
-dropdown are called, every dialog message, and every switch. Nothing in that
+note says, its colour, what the presets in a dropdown are called, every
+dialog message, and every switch. Nothing in that
 file is a decision — what counts as behind, current or custom is settled by
 comparing values, whatever the wording says.
 
@@ -168,18 +169,13 @@ It asks first, lands as one undo step, and leaves presets alone — an
 operation may be sitting on one it added, and removing that would re-point
 the operation at another preset without changing its values.
 
-It also sets a flag on the document saying leave this one alone, so saving
-and editing do not put the marks straight back. Without that the way out was
-not a way out: the next save re-marked everything, because an operation whose
-values match the library is adopted on sight. **Check this document** clears
-the flag, since pressing it is asking for the marks.
-
 **Clearing the text of a single note keeps it gone**, for that operation
-only. Clearing a note is itself an operation change, so it raised the same
-event as any other edit and the line was written back within milliseconds of
-being deleted: there was no way to be rid of one. The record now carries a
-note saying this one was declined, every pass honours it, and pressing
-**Check this document** clears it because that is asking for the notes.
+only, until the job is next opened. Clearing a note is itself an operation
+change, so it raised the same event as any other edit and the line was written
+back within milliseconds of being deleted. The edit handler now remembers the
+one note it has just seen cleared and leaves it alone; that memory does not
+persist, because a note says where an operation stands and opening a job works
+that out again. To stop the notes altogether, use *Switches*.
 
 Only the edit handler may decide a note was declined, because that is the one
 that runs inside somebody's own edit. A pass over a whole document also finds
@@ -188,29 +184,40 @@ missing, and treating those as declined would quietly stop marking them.
 
 ## Switches
 
-All in `addin/UTP/utp/config.py`.
+Eight checkboxes under **Switches** in the UTP panel, saved per machine. The
+defaults below are what a fresh install does.
 
-| Switch | Does |
-| --- | --- |
-| `MAY_WRITE_ON_DEMAND` | the button may mark the document it is pressed in |
-| `MAY_WRITE_ON_EVENTS` | edits and saves keep a document up to date |
-| `MAY_ADD_PRESETS` | newer versions may be added to a document's tool library |
-| `MAY_BUMP_LIBRARY_VERSIONS` | version numbers may be written to the Hub libraries. Not in the Switches dialog, so the only way to turn it off is editing config.py on each machine |
-| `MAY_TIDY_PRESETS` | copies nothing uses any more may be removed |
-| `ONLY_DOCUMENTS_ALREADY_MARKED` | a rollout guard: events only touch documents the button has been pressed in |
-| `SHOW_PROGRESS` | show a progress bar with a cancel button while the button's pass runs |
+| Switch | Does | Default |
+| --- | --- | --- |
+| Add-in is on | everything else hangs off this | on |
+| When I open a job | a job brings itself up to date as it opens | on |
+| When I edit | finishing an operation updates that operation | on |
+| Notes and colours | the notes and icon colours themselves | on |
+| Add presets | newer shop presets are added to the document's dropdowns | on |
+| Remove unused presets | copies no operation points at are removed | on |
+| Summary when it finishes | the box listing what *Update presets* found | **off** |
+| Write a report each time | a report file for every pass | **off** |
 
-`SHOW_PROGRESS` is off because Fusion's only on-screen progress is a dialog,
-and a dialog blocks working in Fusion while it is up. With it off, progress
-goes to the session log every twenty operations instead, which gets in
-nobody's way but has to be looked at to be seen. Turn it on if you would
-rather watch a bar, or want a cancel button on a very large file.
+Off means off: nothing happens on its own, and the buttons that change things
+say so instead of doing it. *Check only* and *Remove all notes* work whatever
+the switches say.
 
-All of them are on, and `ONLY_DOCUMENTS_ALREADY_MARKED` is off, which is the
-ordinary working state. They were turned on one at a time, reading the report
-in between: with any of them off the add-in still works out and records
-exactly what it would have done, which is how to introduce this somewhere
-new or to look into something without changing anything.
+Two of them are off by default because the notes on the operations are the
+answer: a box to dismiss and a folder filling with reports are both noise once
+the thing works. Turn *Write a report each time* on first if something looks
+wrong.
+
+**Removing unused presets is the one thing here that cannot be taken back**,
+so it is the one switch that never comes back on by itself if the saved file
+goes missing. Nothing this add-in does writes outside your own document.
+
+There are also build switches in `addin/UTP/utp/config.py` —
+`MAY_WRITE_ON_DEMAND`, `MAY_WRITE_ON_EVENTS`, `LISTEN_TO_EVENTS`,
+`SHOW_PROGRESS` and `ONLY_DOCUMENTS_ALREADY_MARKED` — which are defaults and
+rollout guards rather than things a person changes. With any of them off the
+add-in still works out and records exactly what it would have done, which is
+how to introduce this somewhere new or look into something without changing
+anything.
 
 ## Where it writes
 
