@@ -1112,3 +1112,53 @@ def test_a_duplicated_library_does_not_un_mark_the_shop():
     assert marks.plan(operation, answer) in (None, {}, []), (
         "it wanted to change a note it could not reach a verdict on")
     assert operation.notes == held
+
+
+def test_three_generations_settle_and_do_not_churn():
+    """Two operations a generation apart, and the shop moves again.
+
+    Asked on 8 October: a preset is updated, one of several operations moves
+    onto it, then the preset is updated again. Three copies then exist and
+    three distinct names are needed, so exactly one rename is forced -- the
+    copy that was "(latest)" is not any more. It goes to "(previous)", which
+    is the fewest operations disturbed: the oldest copy keeps the bare name
+    and whoever is on it is untouched.
+
+    What must not happen is churn. A copy already correctly called
+    "(previous)" found that name taken -- by itself -- and was renamed to
+    "(previous 2)" every pass, which is a rename under a live operation for
+    nothing.
+    """
+    library_preset = FakeLibraryPreset("P Copper", {"tool_feedCutting": 3000.0})
+    library_tool = type("T", (),
+                        {"presets": {library_preset.id: library_preset}})()
+
+    def copy(name, stood_for, ident):
+        made = FakePreset(
+            name,
+            held={config.KEY_SOURCE_PRESET: library_preset.id,
+                  config.KEY_VALUES: json.dumps({"tool_feedCutting": stood_for})},
+            params={"tool_feedCutting": stood_for})
+        made.id = ident
+        return made
+
+    # Two generations behind, one generation behind, and the fresh copy that
+    # apply() has just added under the bare name.
+    old = copy("P Copper", 1000.0, "g1")
+    middle = copy("P Copper (latest)", 2000.0, "g2")
+    fresh = copy("P Copper", 3000.0, "g3")
+    tool = FakeTool([old, middle, fresh])
+
+    wanted = dict((p.id, w) for p, w in
+                  presets.wanted_names(tool, library_tool, {"g1", "g2"}))
+    assert wanted.get("g3") == "P Copper (latest)", wanted
+    assert wanted.get("g1") is None, "the oldest copy was renamed for no reason"
+    assert wanted.get("g2") == "P Copper (previous)", wanted
+    assert len(set(wanted.values())) == len(wanted), "two copies got one name"
+
+    # And once settled, a second pass must want nothing at all.
+    settled = FakeTool([copy("P Copper", 1000.0, "g1"),
+                        copy("P Copper (previous)", 2000.0, "g2"),
+                        copy("P Copper (latest)", 3000.0, "g3")])
+    assert presets.wanted_names(settled, library_tool, {"g1", "g2", "g3"}) == [], (
+        "it renames something on every pass")

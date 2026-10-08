@@ -265,8 +265,14 @@ def wanted_names(tool, library_tool, used_ids=()):
             for position, (_index, copy) in enumerate(older):
                 if (copy.name or "") == bare:
                     continue
-                rename(copy, bare if position == 0 and bare not in taken
-                       else spare_name(bare, taken))
+                # Its own name does not count against it. Left in, a copy
+                # already correctly called "(previous)" found that name taken
+                # -- by itself -- and was renamed to "(previous 2)" on every
+                # pass, which is a rename under a live operation for nothing
+                # at all.
+                others = taken - {copy.name or ""}
+                rename(copy, bare if position == 0 and bare not in others
+                       else spare_name(bare, others))
             if newest is not None:
                 rename(newest[1], bare if not older else latest_name(bare))
     except Exception:
