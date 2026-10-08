@@ -1077,7 +1077,7 @@ def test_only_one_copy_is_ever_the_newest():
 
 
 def test_a_duplicated_library_does_not_un_mark_the_shop():
-    """C44, and the worst thing in docs/scenarios.md.
+    """C44, and the worst thing the October scenarios review found.
 
     Storing a tool in a library gives it a fresh guid, so duplicating or
     re-importing a Hub library makes every tool in it a different tool to

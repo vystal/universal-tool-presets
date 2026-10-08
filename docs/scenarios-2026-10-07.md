@@ -1,11 +1,30 @@
-# UTP — scenarios
+# UTP — scenarios (archived, 7 October 2026)
 
-Every situation this add-in can be put in, what it should do, how that could be
-checked, and what it costs if it gets it wrong.
+> **This is a snapshot, not documentation. Do not read it as a description of
+> the add-in as it is now.**
+>
+> It was written against 0.13.x and extended against 0.28.1. Since then version
+> numbers and the stamping of the shop library were removed entirely, setups
+> stopped being marked, three commands were renamed or dropped, the progress
+> dialog became Fusion's corner busy bar, and the preset naming was rebuilt
+> around "(latest)" with no versions in it. Roughly a tenth of the rows below
+> describe machinery that no longer exists, and it names deleted modules --
+> `versions.review`, `marks.setup_plan`, `passes._mark_setups`,
+> `presets.claiming_latest` — as though they were live. Section F is headed
+> "The seven switches"; there are eight, and the one it lists last is gone.
+>
+> It is kept because the *method* earned its keep. Working through every
+> situation the add-in can be put in, and writing down what it costs when it
+> gets each one wrong, is what found C44 — a Hub library duplicated at the
+> shop un-marking every job — which was fixed on 8 October. It also spotted,
+> independently, the stale fallback copy of the instructions and the
+> contradictory claims about undo, both of which were still true findings a
+> day later.
+>
+> If this is worth having again, regenerate it against the current code rather
+> than patching these rows: more than half of them would move.
 
-Written from the code as it stands (0.13.x, schema 3), not from the design
-notes. Where the code and the prose disagree, the disagreement is written down
-rather than resolved in the code's favour.
+---
 
 **Vocabulary.** *Wrong green* means an operation reads "nothing to do" while it
 is actually out of date — the worst outcome, because it is the exact failure the
