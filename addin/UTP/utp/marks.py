@@ -366,6 +366,33 @@ def strip(owner):
     return changes
 
 
+def touched(owner):
+    """Whether this add-in has ever written anything to this one.
+
+    Two reads, and the first answers it for most things: a line of ours in the
+    note, or any attribute in our group. Cheaper than strip(), which builds
+    the whole set of changes before anybody can see whether there were any.
+
+    Deliberately not a flag stored on the document. A flag saying "the setups
+    here are clean" would be right until a machine still running an older
+    build marked one again, and then it would be wrong for ever -- which is
+    the exact failure the thing it guards exists to clean up. Asked afresh
+    every time, it cannot go stale.
+    """
+    try:
+        if _ours_in(_notes(owner)):
+            return True
+    except Exception:
+        return True          # cannot tell: let strip() have a proper look
+    try:
+        # _group_keys rather than itemsByGroup directly, because it already
+        # knows what to do when the group cannot be enumerated: fall back to
+        # asking for the keys this version writes, one at a time.
+        return bool(_group_keys(owner))
+    except Exception:
+        return True
+
+
 def _group_keys(owner):
     """Every attribute this add-in has in its group, whatever it is called.
 

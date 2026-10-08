@@ -230,7 +230,16 @@ def _clear_setup_marks(cam, report, writing):
     # cam.setups directly. This asked survey.by_setup for every setup and every
     # operation beneath it and then used only the setups -- a whole extra
     # traversal of the document, on every pass, thrown away.
+    clean = 0
     for setup in _setups_of(cam, report):
+        # Nothing of ours on it, so there is nothing to take off. This runs on
+        # every pass, for ever, over documents that were never marked by a
+        # build that marked setups -- which before long is all of them. Asked
+        # per setup rather than remembered on the document, so a setup that
+        # somehow gains a mark again is still seen.
+        if not marks.touched(setup):
+            clean += 1
+            continue
         try:
             changes = marks.strip(setup)
         except Exception:
@@ -252,6 +261,9 @@ def _clear_setup_marks(cam, report, writing):
                         why="setups are not marked any more")
         except Exception:
             report.failed("could not clear the setup %s" % name)
+    if clean:
+        report.note("setups with nothing of ours on them", count=clean,
+                    note="not looked at any further")
 
 
 def remove_marks(app):

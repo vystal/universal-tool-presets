@@ -1403,3 +1403,33 @@ def test_every_file_imports_what_it_names():
                              % (os.path.basename(path), short))
     assert looked > 5, "found almost nothing to check; the walk is wrong"
     assert wrong == [], "\n".join(wrong)
+
+
+def test_a_setup_with_nothing_on_it_is_not_looked_at_further():
+    """The setup migration skips documents that have nothing to clear.
+
+    It runs on every pass, for ever, taking notes off setups marked by a build
+    that no longer exists -- which before long means every document it looks
+    at has nothing to take off. marks.touched answers that in two reads
+    instead of building the whole set of changes first.
+
+    Deliberately asked afresh rather than remembered on the document: a flag
+    saying "the setups here are clean" would be right until a machine running
+    an older build marked one again, and then wrong for ever, which is exactly
+    the stale-note failure the migration exists to clean up.
+    """
+    clean = Owner("", None, "Gray")
+    assert marks.touched(clean) is False
+
+    with_note = Owner(marks.ours("UTP P Copper") + "\nmine", None, "Gray")
+    assert marks.touched(with_note) is True
+
+    # A colour of ours and no note: the record is what gives it away.
+    coloured = Owner("", ADOPTED, "Yellow")
+    assert marks.touched(coloured) is True
+
+    # Somebody else's note, untouched by us.
+    theirs = Owner("CHECK Z OFFSET BEFORE RUNNING", None, "Gray")
+    assert marks.touched(theirs) is False
+    assert marks.strip(theirs) == {} or "note" not in marks.strip(theirs), (
+        "it wanted to change a note that is not ours")
