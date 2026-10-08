@@ -225,20 +225,12 @@ def _verdicts(operations, tools, report, progress=None, resolve=None):
     return found
 
 
-def _sync_and_tidy(cam, in_use, used_ids, report, writing, tidying=True):
+def _sync_and_tidy(cam, in_use, used_ids, report, writing):
     """Bring in UTPs the document has never seen, and drop copies nothing needs.
 
     Returns True if anything was written, since update() leaves every tool
     reference taken before it stale.
 
-    tidying is False for a caller that has only looked at part of the document.
-    Removing a preset is the one destructive thing here and the whole protection
-    is used_ids: the set of presets operations point at. A caller working from a
-    slice builds that set from a slice, so a preset a current or custom
-    operation elsewhere is sitting on would look spare. Deleting it re-points
-    that operation at another preset with its values unchanged, which is wrong
-    feeds at the machine. Bringing presets in needs no such completeness, so
-    that half still runs.
     """
     wrote = False
     shelf = _document_tools(cam)
@@ -426,7 +418,7 @@ def _name_copies(cam, in_use, used_ids, report, writing):
     return wrote
 
 
-def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
+def _ensure_presets(cam, decided, tools, report, writing):
     """Make the newer values pickable for every behind operation.
 
     Returns True if anything was written, since the caller must then re-read
@@ -462,7 +454,7 @@ def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
         # below invalidates every tool object gathered here.
         wanted.setdefault(library_preset.id, (found, library_preset))
 
-    wrote = _sync_and_tidy(cam, in_use, used_ids, report, writing, tidying)
+    wrote = _sync_and_tidy(cam, in_use, used_ids, report, writing)
 
     # "if not wanted: return" used to sit here, and it skipped the tidy and the
     # naming below for the one case they exist to handle. Nothing is "wanted"
@@ -504,17 +496,15 @@ def _ensure_presets(cam, decided, tools, report, writing, tidying=True):
             wrote = True
         except Exception:
             report.failed("could not add a preset for %s" % library_preset.name)
-    if tidying:
-        # Only on a whole pass. used_ids built from a slice of the document
-        # does not say what every operation is sitting on, and both of these
-        # lean on it -- the tidy to know what it may not delete, the naming to
-        # know which copy somebody is sitting on.
-        wrote = _tidy(cam, in_use, used_ids, report, writing) or wrote
-        wrote = _name_copies(cam, in_use, used_ids, report, writing) or wrote
-    else:
-        report.note("not tidying: only part of the document was looked at",
-                    reason=("what operations point at is only known in full "
-                            "after a whole pass"))
+    # Always, on every path. These used to be held back for a caller that had
+    # looked at only part of the document, because used_ids was once built
+    # from the verdicts that caller had -- a slice -- so a preset an operation
+    # elsewhere was sitting on could look spare. It is read from a full walk
+    # of every operation now (see _presets_in_use), so the protection is
+    # complete however little of the document the caller swept, and holding
+    # them back only meant an edit never finished its own tidying up.
+    wrote = _tidy(cam, in_use, used_ids, report, writing) or wrote
+    wrote = _name_copies(cam, in_use, used_ids, report, writing) or wrote
     return wrote
 
 

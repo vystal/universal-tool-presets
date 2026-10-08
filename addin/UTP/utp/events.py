@@ -296,6 +296,7 @@ def mark_document(document, why, budget=-1, trigger="open"):
         order = all_operations[cursor:] + all_operations[:cursor]
 
         behind = []
+        looked_at = []
         looked = 0
         for operation in order:
             # The budget is consulted only once something has been done. A
@@ -323,6 +324,7 @@ def mark_document(document, why, budget=-1, trigger="open"):
                 continue
             looked += 1
             counts[verdict["state"]] = counts.get(verdict["state"], 0) + 1
+            looked_at.append((operation, verdict))
             if verdict["state"] == state.BEHIND:
                 behind.append((operation, verdict))
             would = marks.plan(operation, verdict)
@@ -354,13 +356,19 @@ def mark_document(document, why, budget=-1, trigger="open"):
         # part-swept document got the notes and not the presets -- the precise
         # failure the step was written to prevent. It only ever runs for what
         # this pass marked behind, which the budget already bounds.
-        if behind and allowed:
+        # Every operation looked at, not just the behind ones, and the tidy
+        # runs too. Both were wrong for the same case: somebody picks the
+        # (latest) entry in the dropdown and presses OK, which leaves nothing
+        # behind at all -- so this block was skipped entirely and the copy
+        # they had just moved off stayed in the dropdown until somebody
+        # pressed the button. Reported 8 October, and it is the ordinary way
+        # the thing is used.
+        if allowed:
             cam = _cam_of(document)
             if cam is not None:
                 try:
-                    changed = passes._ensure_presets(cam, behind, tools,
-                                                     _Quiet(), True,
-                                                     tidying=False)
+                    changed = passes._ensure_presets(cam, looked_at, tools,
+                                                     _Quiet(), True)
                     if changed:
                         # _ensure_presets returns True or False, not a list.
                         # len() on it raised TypeError, the enclosing except
