@@ -36,8 +36,8 @@ import time
 import adsk.cam
 import adsk.core
 
-from utp import (compat, config, diagnostics, events, library, marks, passes,
-                 presets, settings, state, values)
+from utp import (compat, config, diagnostics, dropdown, events, library,
+                 marks, passes, presets, settings, state, survey, values)
 
 
 class Quiet:
@@ -97,7 +97,7 @@ class Bench:
         settings.save({key: True for key, _l, _g, _s in settings.CONTROLS})
 
     def operations(self):
-        return passes._walk(self.cam)[0]
+        return survey.walk(self.cam)[0]
 
     def tools(self):
         quiet = Quiet()
@@ -771,7 +771,7 @@ def _no_churn(bench):
 
     def dropdown():
         counted = 0
-        for _key, tool in passes._document_tools(bench.cam).items():
+        for _key, tool in survey.document_tools(bench.cam).items():
             for i in range(tool.presets.count):
                 if tool.presets.item(i).name.endswith(config.LATEST_SUFFIX):
                     counted += 1
@@ -1031,9 +1031,9 @@ def _pass_finishes_its_own_work(bench):
     tools, ok = library.cached(report, adsk.doEvents)
     if not ok:
         return "SKIP", "the libraries could not be read"
-    used = passes._presets_in_use(bench.cam, report)
+    used = dropdown.presets_in_use(bench.cam, report)
     left = []
-    for key, tool in passes._document_tools(bench.cam).items():
+    for key, tool in survey.document_tools(bench.cam).items():
         library_tool = tools.get(key)
         if library_tool is None:
             continue
@@ -1122,7 +1122,7 @@ def _in_use_from_operations(bench):
     reports a failure, and a failure is what stands the tidy down.
     """
     quiet = Quiet()
-    walked = passes._presets_in_use(bench.cam, quiet)
+    walked = dropdown.presets_in_use(bench.cam, quiet)
     if quiet.failures:
         return "FAIL", ("reading what the operations are on reported %d "
                         "failure(s). The tidy would stand down, which is "

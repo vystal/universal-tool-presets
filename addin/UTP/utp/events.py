@@ -21,7 +21,8 @@ import time
 import adsk.core
 import adsk.cam
 
-from . import compat, config, diagnostics, library, marks, settings, state
+from . import (compat, config, diagnostics, dropdown, library, marks,
+               settings, state, survey)
 
 _handlers = []
 _running = {"undo": False}
@@ -271,7 +272,7 @@ def mark_document(document, why, budget=-1, trigger="open"):
             diagnostics.session_log("%s: nothing decided" % why,
                                     reason="the Hub libraries could not be read")
             return 0
-        all_operations = list(passes.operations_of(document))
+        all_operations = list(survey.operations_of(document))
         allowed, held_back = _may_write(document, all_operations, trigger)
         counts = {}
         planned = wrote = failed = 0
@@ -367,7 +368,7 @@ def mark_document(document, why, budget=-1, trigger="open"):
             cam = _cam_of(document)
             if cam is not None:
                 try:
-                    changed = passes._ensure_presets(cam, looked_at, tools,
+                    changed = dropdown.ensure_presets(cam, looked_at, tools,
                                                      _Quiet(), True)
                     if changed:
                         # _ensure_presets returns True or False, not a list.
@@ -384,7 +385,7 @@ def mark_document(document, why, budget=-1, trigger="open"):
                         # the ones that changed are read and judged again rather
                         # than reused, as the button's pass does.
                         seen = {}
-                        for operation in passes.operations_of(document):
+                        for operation in survey.operations_of(document):
                             verdict = state.reconcile(operation, tools, seen)
                             if verdict["state"] != state.BEHIND:
                                 continue

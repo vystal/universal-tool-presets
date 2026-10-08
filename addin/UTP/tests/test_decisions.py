@@ -1343,3 +1343,63 @@ def test_the_newest_is_the_one_whose_own_values_are_the_librarys():
     assert "genuine" not in offered, (
         "offered the copy that actually holds the library's values: %s" % offered)
     assert offered == ["tampered"], offered
+
+
+def test_every_file_imports_what_it_names():
+    """Including the ones pytest never loads.
+
+    integration.py and tests/jobs/*.py are sent into Fusion by the agent, not
+    collected here, so nothing checks them until a suite run on the bench
+    fails two minutes in. Splitting passes.py moved calls into them without
+    their imports and that is exactly what happened.
+    """
+    import ast
+
+    root = os.path.join(HERE, "..", "..", "..")
+    ours = {"survey", "dropdown", "passes", "presets", "settings", "state",
+            "config", "marks", "library", "diagnostics", "compat", "identity",
+            "events", "values", "version", "instructions", "debug"}
+    looked, wrong = 0, []
+    for folder, _dirs, names in os.walk(root):
+        if "__pycache__" in folder or ".git" in folder or "dist" in folder:
+            continue
+        for name in names:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(folder, name)
+            try:
+                text = open(path, encoding="utf-8").read()
+                tree = ast.parse(text)
+            except Exception:
+                continue
+            if "from utp import" not in text and "from . import" not in text:
+                continue
+            looked += 1
+            imported = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    imported |= {a.asname or a.name for a in node.names}
+                elif isinstance(node, ast.Import):
+                    imported |= {(a.asname or a.name).split(".")[0]
+                                 for a in node.names}
+            defined = {n.name for n in tree.body
+                       if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+            used = {n.value.id for n in ast.walk(tree)
+                    if isinstance(n, ast.Attribute)
+                    and isinstance(n.value, ast.Name)}
+            # Names bound in the file itself: a local called "library" holding
+            # a Fusion library object is not the library module, and a module
+            # does not import itself.
+            bound = {os.path.splitext(os.path.basename(path))[0]}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.arg):
+                    bound.add(node.arg)
+                elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                    bound.add(node.id)
+                elif isinstance(node, (ast.For,)) and isinstance(node.target, ast.Name):
+                    bound.add(node.target.id)
+            for short in sorted((used & ours) - imported - defined - bound):
+                wrong.append("%s names %s.* and does not import it"
+                             % (os.path.basename(path), short))
+    assert looked > 5, "found almost nothing to check; the walk is wrong"
+    assert wrong == [], "\n".join(wrong)

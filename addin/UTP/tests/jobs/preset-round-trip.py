@@ -17,7 +17,7 @@
 # It cleans up the preset it made. Writes only to the document's own tool
 # library, never the shop's.
 
-from utp import library, passes, values
+from utp import library, passes, survey, values
 
 PROBE = "UTP agent probe"
 
@@ -37,7 +37,7 @@ if not ok:
 # A tool in this document whose library twin has a preset to copy. Preferring
 # one that has tool_coolant, since that is the suspect.
 chosen = None
-for key, tool in passes._document_tools(cam).items():
+for key, tool in survey.document_tools(cam).items():
     twin = tools.get(key)
     if twin is None:
         continue
@@ -79,7 +79,7 @@ cam.documentToolLibrary.update(tool, False)
 
 # The tool reference is stale now, so the preset is found again by name.
 after = {}
-for _key, again in passes._document_tools(cam).items():
+for _key, again in survey.document_tools(cam).items():
     for index in range(again.presets.count):
         copy = again.presets.item(index)
         if copy.name == PROBE:
@@ -104,7 +104,7 @@ answer = {"tool": tool.description, "preset": preset.name,
 
 # Taken back out, so running this twice does not leave the dropdown full of
 # probes. Safe to remove: nothing can be pointing at a preset made just now.
-for _key, again in passes._document_tools(cam).items():
+for _key, again in survey.document_tools(cam).items():
     for index in reversed(range(again.presets.count)):
         if again.presets.item(index).name == PROBE:
             again.presets.remove(index)

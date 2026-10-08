@@ -20,10 +20,10 @@
 
 import gc
 
-from utp import events, passes
+from utp import events, passes, survey
 
 cam = app.activeDocument.products.itemByProductType("CAMProductType")
-ops, _shape = passes._walk(cam)
+ops, _shape = survey.walk(cam)
 if not ops:
     raise SystemExit("no operations in this document to poke")
 op = ops[0]

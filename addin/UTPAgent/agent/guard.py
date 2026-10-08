@@ -80,9 +80,9 @@ def libraries_used(app):
     For a job to assert on before it writes anything: if this is not just the
     TEST library, the document is not the one to be writing in.
     """
-    from utp import library, passes
+    from utp import library, survey
     cam = app.activeDocument.products.itemByProductType("CAMProductType")
-    shelf = passes._document_tools(cam)
+    shelf = survey.document_tools(cam)
 
     class Quiet:
         def note(self, *a, **k): pass
