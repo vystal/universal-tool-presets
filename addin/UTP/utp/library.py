@@ -66,6 +66,8 @@ class LibraryTool:
         self.description = tool.description
         self.library = library_path
         self.library_url = library_url
+        # The other libraries this same tool was found in. See absorb.
+        self.also_in = []
         self.presets = {}
         # Counted rather than ignored. A bare "except: continue" here once hid
         # a dead config reference that emptied every tool's presets and made
@@ -97,6 +99,36 @@ class LibraryTool:
             if not preset.values:
                 self.valueless += 1
             self.presets[preset.id] = preset
+
+    def absorb(self, other):
+        """Take in another library's copy of the same tool.
+
+        The same tool id turns up in more than one Hub library -- 58 of this
+        shop's 382 tools do. tool_id's docstring says storing a tool in a
+        library gives it a fresh one, and that is true of storing it; it is
+        not true of however these libraries came to exist, and the id is
+        shared.
+
+        The reading is keyed by tool id, so the copies used to overwrite each
+        other and only the last library read survived. Every shop preset on
+        every other copy simply was not there, and an operation using one got
+        "preset not in the library": no note, nothing said, on a preset that
+        is perfectly good. Reported from a second machine on 9 October, where
+        the preset was called Zirc and lived in the Okuma library while the
+        Kitamura copy of the same tool -- which has no shop presets at all --
+        was the one that won.
+
+        Presets already held win, so the first library read decides when two
+        copies disagree about one preset id. What matters is that none of them
+        disappears.
+        """
+        for ident, preset in other.presets.items():
+            self.presets.setdefault(ident, preset)
+        self.unreadable += other.unreadable
+        self.valueless += other.valueless
+        self.ignored += other.ignored
+        if other.library and other.library not in self.also_in:
+            self.also_in.append(other.library)
 
 
 
@@ -237,6 +269,7 @@ def read(report, do_events=None):
 
     assets = _walk(libraries, url)
     read_count = preset_count = unreadable = valueless = ignored = 0
+    shared = 0
     # Libraries that would not open. One of eight failing used to be a note in
     # a log and nothing else: the tools in it were simply absent, so every
     # operation using one read as "not a UTP tool", and that takes the note and
@@ -262,16 +295,31 @@ def read(report, do_events=None):
             except Exception:
                 continue
             if tool.id:
-                tools[tool.id] = tool
-                preset_count += len(tool.presets)
-                unreadable += tool.unreadable
-                valueless += tool.valueless
-                ignored += tool.ignored
+                held = tools.get(tool.id)
+                if held is None:
+                    tools[tool.id] = tool
+                    preset_count += len(tool.presets)
+                    unreadable += tool.unreadable
+                    valueless += tool.valueless
+                    ignored += tool.ignored
+                else:
+                    # The same tool in another library. Its presets are taken
+                    # in rather than thrown away with the copy: assigning over
+                    # the entry is what hid a whole library's presets.
+                    was = len(held.presets)
+                    held.absorb(tool)
+                    preset_count += len(held.presets) - was
+                    shared += 1
             if do_events is not None and index % config.OPERATIONS_PER_CHUNK == 0:
                 do_events()
 
     report.note("read the Hub libraries",
                 libraries=read_count, tools=len(tools), presets=preset_count)
+    if shared:
+        report.note("tools that are in more than one library",
+                    count=shared,
+                    note=("their presets are taken from every library that "
+                          "holds them, not only the last one read"))
     if ignored:
         report.note("presets Fusion created rather than somebody in the shop",
                     count=ignored, names=list(config.NOT_A_UTP_NAMES),

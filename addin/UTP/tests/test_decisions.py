@@ -1433,3 +1433,50 @@ def test_a_setup_with_nothing_on_it_is_not_looked_at_further():
     assert marks.touched(theirs) is False
     assert marks.strip(theirs) == {} or "note" not in marks.strip(theirs), (
         "it wanted to change a note that is not ours")
+
+
+def test_one_tool_in_two_libraries_keeps_both_libraries_presets():
+    """The reading is keyed by tool id, and ids are shared across libraries.
+
+    58 of this shop's 382 tools are in more than one Hub library. The copies
+    used to overwrite each other in the reading, so only the last library read
+    survived and every shop preset on the others simply was not there. An
+    operation using one got "preset not in the library" -- no note, nothing
+    said, on a preset that is perfectly good.
+
+    Reported from a second machine on 9 October: the preset was called Zirc
+    and lived in the Okuma library, while the Kitamura copy of the same tool,
+    which has no shop presets at all, was the one that won.
+    """
+    from utp import library
+
+    class Preset:
+        def __init__(self, name, ident):
+            self.name, self.id = name, ident
+            self.values = {"tool_feedCutting": 1000.0}
+
+    def tool_from(library_name, presets):
+        made = library.LibraryTool.__new__(library.LibraryTool)
+        made.id = "one-tool"
+        made.description = "#15 bullnose"
+        made.library = library_name
+        made.library_url = None
+        made.also_in = []
+        made.unreadable = made.valueless = made.ignored = 0
+        made.presets = {p.id: p for p in presets}
+        return made
+
+    kitamura = tool_from("Kitamura HX250G.hub", [])
+    okuma = tool_from("Okuma MB56 VII.hub", [Preset("Zirc", "zirc-id")])
+
+    kitamura.absorb(okuma)
+    assert "zirc-id" in kitamura.presets, (
+        "a whole library's presets vanished because another library holds the "
+        "same tool: %s" % list(kitamura.presets))
+    assert kitamura.also_in == ["Okuma MB56 VII.hub"], kitamura.also_in
+
+    # The copy already held wins on a clash, so the first library read decides.
+    mine = Preset("Zirc", "zirc-id")
+    first = tool_from("A.hub", [mine])
+    first.absorb(tool_from("B.hub", [Preset("Zirc", "zirc-id")]))
+    assert first.presets["zirc-id"] is mine
