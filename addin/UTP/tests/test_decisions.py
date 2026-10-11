@@ -2019,3 +2019,108 @@ def test_the_name_fallback_refuses_across_merged_libraries():
                            "also_in": []})()
     verdict = state.reconcile(operation, {"tool-1": alone}, {})
     assert verdict["matched preset by"] == "name within the tool", verdict
+
+
+def test_a_value_that_could_not_be_read_is_not_a_value_that_matches():
+    """An operation compared on what survived the read came out green.
+
+    values.named dropped a name for three different reasons and reported
+    none of them: the owner does not have it (fine), the value is not worth
+    comparing (fine), and the read raised (not fine). reconcile's guard was
+    all-or-nothing, so one surviving parameter was enough to call it a
+    complete reading -- and an operation whose stepdown is five times its
+    preset's read "matches the library", green, with the note saying it
+    sets the cut.
+    """
+    class Params:
+        def itemByName(self, name):
+            if name == "tool_feedCutting":
+                return FakePreset._Param(name, 1000.0)
+            raise RuntimeError("Fusion would not read %s" % name)
+
+    held = {"tool_feedCutting": 1000.0, "tool_stepdown": 2.0}
+    lost = []
+    # named() takes the OWNER and reads .parameters off it.
+    holder = type("Holder", (), {"parameters": Params()})()
+    got = values.named(holder, held, lost)
+    assert got == {"tool_feedCutting": 1000.0}
+    assert lost == ["tool_stepdown"], (
+        "a failed read is indistinguishable from a parameter it does not have")
+
+    # And reconcile refuses to judge rather than comparing what is left.
+    library_preset = FakeLibraryPreset("P Steel", held)
+    library_tool = type("T", (), {"id": "tool-1", "description": "#1 flat",
+                                  "presets": {library_preset.id: library_preset},
+                                  "also_in": []})()
+
+    class Preset:
+        name, id = "P Steel", library_preset.id
+        parameters = FakePreset("P Steel", params=held).parameters
+        attributes = Attrs({})
+
+    operation = Owner(marks.ours("UTP P Steel"), ADOPTED, "Green")
+    operation.tool = type("T", (), {"description": "#1 flat", "id": "tool-1"})()
+    operation.toolPreset = Preset()
+    operation.parameters = Params()
+
+    verdict = state.reconcile(operation, {"tool-1": library_tool}, {})
+    assert verdict["state"] == state.UNKNOWN, (
+        "it judged an operation it could only half read: %s" % verdict)
+    assert verdict.get("leave alone") is True
+    assert "could not be read" in verdict["why"]
+
+
+def test_one_damaged_record_does_not_freeze_a_whole_job():
+    """Corrupt and newer are different things, and only one is a reason to stop.
+
+    schema_of reported anything it could not parse as newer than this
+    version, so a single truncated record made survey() call the whole
+    document the work of a newer add-in, may_write refused, and every note
+    in the job froze -- while telling the person to update an add-in that
+    was already current. state._held reads the same bytes, gets nothing and
+    calls that one operation never adopted: two halves of the add-in reading
+    one byte sequence as opposite things.
+    """
+    from utp import compat
+
+    class Owner_:
+        def __init__(self, record):
+            self.attributes = Attrs(
+                {config.KEY_RECORD: record} if record is not None else {})
+
+    good = Owner_(json.dumps({"s": config.SCHEMA, "p": "x"}))
+    broken = Owner_("{truncat")
+    newer = Owner_(json.dumps({"s": config.SCHEMA + 2, "p": "x"}))
+
+    assert compat.schema_of(good) == config.SCHEMA
+    assert compat.schema_of(broken) is None, "damage still reads as a schema"
+    assert compat.schema_of(newer) == config.SCHEMA + 2
+
+    allowed, _why = compat.may_write(compat.survey([good, broken]))
+    assert allowed is True, (
+        "one unreadable record stopped the add-in writing to the whole job")
+
+    # A record that really is newer still stops it.
+    allowed, why = compat.may_write(compat.survey([good, newer]))
+    assert allowed is False and why
+
+
+def test_a_preset_it_cannot_find_is_never_called_custom():
+    """"Custom" was decided before anything checked the preset resolves.
+
+    An operation moved onto a preset in no Hub library and then tuned came
+    out custom: the note relabelled, the dot greyed, and a record written
+    ADOPTING a preset the shop does not have. On every later pass that
+    record matches, so it stays custom for ever and counts as adopted -- it
+    is enrolled onto a preset nobody can offer an update for.
+    """
+    operation = _already_marked(preset_id="not-in-any-library")
+    operation.toolPreset.name = "FAST"
+    # Its values differ from that preset, which is what used to say "custom".
+    operation.parameters = type("P", (), {
+        "itemByName": lambda _s, n: FakePreset._Param(n, 2500.0)})()
+
+    verdict = state.reconcile(operation, {"tool-1": _library({})}, {})
+    assert verdict["state"] != state.CUSTOM, (
+        "it enrolled the operation onto a preset in no library: %s" % verdict)
+    assert verdict["state"] == state.RETIRED, verdict

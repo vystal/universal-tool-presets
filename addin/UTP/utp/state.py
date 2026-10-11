@@ -275,7 +275,19 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
                           "nothing to compare it against")
         return verdict
 
-    operation_values = values.named(operation, preset_values)
+    unreadable = []
+    operation_values = values.named(operation, preset_values, unreadable)
+    if unreadable:
+        # Some of its values could not be read. Comparing the rest answers a
+        # different question than the one asked -- "do the values I managed
+        # to read match" -- and the answer to that is green on an operation
+        # whose stepdown is five times the preset's.
+        verdict["state"] = UNKNOWN
+        verdict["leave alone"] = True
+        verdict["why"] = ("%d of its values could not be read (%s), so it "
+                          "cannot be compared against its preset"
+                          % (len(unreadable), ", ".join(sorted(unreadable)[:4])))
+        return verdict
     if not operation_values:
         # The same hole as the empty preset above, on the operation's side.
         # values.named swallows a failure per name and returns {} if the
@@ -288,6 +300,14 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
                           "nothing to compare against its preset")
         return verdict
     edited = values.differences(operation_values, preset_values)
+    if edited and library_preset is None:
+        # Moved onto a preset in no Hub library and then tuned. Calling that
+        # "custom" relabels the note, greys the dot and writes a record
+        # adopting a preset the shop does not have -- after which the record
+        # matches on every later pass and the operation is enrolled on it
+        # for ever. The retired branch below is the honest answer and it sat
+        # just past this return.
+        edited = []
     if edited:
         verdict["differences"] = edited
         verdict["changed"] = values.detail(operation_values, preset_values, edited)

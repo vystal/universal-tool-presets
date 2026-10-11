@@ -34,26 +34,38 @@ def scalars(owner):
     return out
 
 
-def named(owner, names):
+def named(owner, names, failures=None):
     """The values of just these parameters, looked up by name.
 
     An operation carries about three hundred readable parameters and a
     preset about fifteen, and only the ones both have are ever compared. So
     reading all three hundred threw away nine tenths of the work: the preset
     is read first and the operation is then asked only for those names.
+
+    `failures` is an optional list the names that could not be READ are
+    appended to. That is a different thing from a name the owner does not
+    have, and from a value of a type not worth comparing, and until now all
+    three left by the same door. A caller comparing what came back had no
+    way to tell "these are all its values" from "this is what survived", so
+    an operation whose stepdown raised on read was compared on its feed
+    alone and came out matching the library.
     """
     out = {}
     try:
         parameters = owner.parameters
     except Exception:
+        if failures is not None:
+            failures.extend(names)
         return out
     for name in names:
         try:
             parameter = parameters.itemByName(name)
             if parameter is None:
-                continue
+                continue              # it simply does not have this one
             value = parameter.value.value
         except Exception:
+            if failures is not None:
+                failures.append(name)
             continue
         if isinstance(value, config.COMPARABLE_TYPES):
             out[name] = value

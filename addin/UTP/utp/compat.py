@@ -25,6 +25,8 @@ convert as they are worked on rather than in a migration nobody asked for.
 
 import json
 
+from . import diagnostics
+
 from . import config
 
 
@@ -46,9 +48,21 @@ def schema_of(owner):
     """The schema something was written against, or None if nothing was.
 
     From inside the record where there is one, and from the separate
-    attribute schema 1 wrote otherwise. Unreadable either way is treated as
-    newer rather than absent: something wrote a value this version cannot
-    make sense of, and guessing is what does the damage.
+    attribute schema 1 wrote otherwise.
+
+    A value that parses and names a schema this version does not know is
+    newer, and standing down over it is right. A value that does not parse
+    at all is damaged, and that is a different thing: it used to be reported
+    as newer too, so a single corrupt record froze marking across an entire
+    job and told the person to update an add-in that was already current.
+    state._held reads the same bytes, gets nothing, and calls that operation
+    never adopted -- so the two halves of this add-in read one byte sequence
+    as opposite things, and only one of them stopped the whole document.
+
+    Damaged reads as None: nothing can be learnt from it about what wrote
+    it. The operation carrying it is still handled on its own merits, where
+    an unreadable record means "not adopted" rather than "do not touch this
+    job".
     """
     try:
         record = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
@@ -59,7 +73,7 @@ def schema_of(owner):
         try:
             return int(json.loads(record.value).get("s", config.SCHEMA))
         except Exception:
-            return config.SCHEMA + 1
+            return None
     try:
         found = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
                                             config.KEY_SCHEMA)
@@ -70,7 +84,7 @@ def schema_of(owner):
     try:
         return int(found.value)
     except Exception:
-        return config.SCHEMA + 1
+        return None
 
 
 def survey(owners, breathe=None):
@@ -80,13 +94,33 @@ def survey(owners, breathe=None):
     is long enough to be worth handing the main thread back during.
     """
     newest = 0
+    damaged = 0
     for index, owner in enumerate(owners):
         found = schema_of(owner)
+        if found is None and _has_a_record(owner):
+            # It has one and it will not parse. Counted rather than treated
+            # as newer, which is what froze a whole job over one bad record
+            # -- but counted, because silence about damage is how this got
+            # written off as "nothing here was ever marked".
+            damaged += 1
         if found and found > newest:
             newest = found
         if breathe is not None:
             breathe(index)
+    if damaged:
+        diagnostics.session_log(
+            "records that could not be read", count=damaged,
+            note=("not treated as newer -- one of those used to stop every "
+                  "note in the job. Those operations read as never marked."))
     return newest
+
+
+def _has_a_record(owner):
+    try:
+        return owner.attributes.itemByName(config.ATTRIBUTE_GROUP,
+                                           config.KEY_RECORD) is not None
+    except Exception:
+        return False
 
 
 def may_write(newest):
