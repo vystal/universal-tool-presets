@@ -105,6 +105,11 @@ def _check(app):
     if not settings.on("on"):
         return config.IS_OFF, None
     path, _counts, message = passes.run(app)
+    if message.startswith(config.REFUSED_PREFIX):
+        # Shown whatever the Summary switch says. A refusal to do something
+        # that cannot be taken back is not a summary, and the whole reason it
+        # exists is that the thing it guards against happened silently.
+        return message, path and ("Report: %s" % path)
     if not settings.on("summary"):
         # Silent by default, asked for on 8 October. The notes on the
         # operations are the answer and the progress bar showed it working,

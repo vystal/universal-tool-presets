@@ -137,6 +137,22 @@ def _fetch(url, timeout=_TIMEOUT):
 # ---------------------------------------------------------------------------
 
 def _installed():
+    """What is actually on this machine, read from the code itself.
+
+    The code, not the stamp beside it. The stamp was the record and it can
+    run ahead: on 12 October a machine had version.txt saying 0.49.0 with
+    0.48.2 unpacked beside it and no "installed" line in the log for either.
+    The loader then compared the release against the stamp, found them equal
+    and skipped the download -- so that machine would have stayed on 0.48.2
+    for ever, silently, while every report it wrote claimed 0.49.0.
+
+    A record that can disagree with the thing it records is a wedge waiting
+    to happen. The unpacked package knows its own version; the stamp is only
+    a fallback for when that cannot be read.
+    """
+    from_code = _version_in(_CODE)
+    if from_code:
+        return from_code
     try:
         with open(_STAMP, encoding="utf-8") as handle:
             return handle.read().strip()

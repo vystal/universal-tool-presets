@@ -1480,3 +1480,542 @@ def test_one_tool_in_two_libraries_keeps_both_libraries_presets():
     first = tool_from("A.hub", [mine])
     first.absorb(tool_from("B.hub", [Preset("Zirc", "zirc-id")]))
     assert first.presets["zirc-id"] is mine
+
+
+def test_a_vanished_preset_does_not_take_the_note_off():
+    """An operation still on the preset it was adopted on, whose preset the
+    add-in can no longer find, is a question it cannot answer.
+
+    Somebody moving an operation off a shop preset changes which preset it is
+    on, and _record withholds the record the moment that happens. So a record
+    that still matches means the operation has NOT moved and the library has
+    stopped answering for it.
+
+    Until 0.46.0 a tool in two Hub libraries lost one library's presets from
+    the reading, so every operation on them read "preset not in the library"
+    -- which takes the note and the colour off. About fourteen of twenty in
+    one setup, overnight, with nothing said. The cause is fixed; this is so
+    the next cause cannot do the same.
+    """
+    class Tool:
+        description = "#15 bullnose"
+        id = "tool-1"
+
+    # Real values on it: a preset that reads none hits reconcile's own
+    # "cannot be trusted" guard first, which is right but is not this one.
+    class Preset:
+        name, id = "Zirc", "zirc-id"
+        parameters = FakePreset("Zirc",
+                                params={"tool_feedCutting": 1000.0}).parameters
+        attributes = Attrs({})
+
+    class Params:
+        # values.named looks parameters up by name; FakePreset's collection
+        # only indexes, so without this the operation reads as having no
+        # values at all and stops at a different guard.
+        held = {"tool_feedCutting": 1000.0}
+
+        def itemByName(self, name):
+            if name not in self.held:
+                return None
+            return FakePreset._Param(name, self.held[name])
+
+    # Adopted ON THIS PRESET. _record withholds the record the moment an
+    # operation moves to a different one, and that is the whole distinction
+    # being tested: a record that still matches means it has not moved.
+    on_zirc = dict(ADOPTED)
+    on_zirc[config.KEY_ADOPTED_PRESET] = "zirc-id"
+
+    operation = Owner(marks.ours("UTP Zirc") + "\nCHECK Z", on_zirc, "Green")
+    operation.tool = Tool()
+    operation.toolPreset = Preset()
+    operation.parameters = Params()
+    held = operation.notes
+
+    library_tool = type("T", (), {"id": "tool-1", "description": "#15 bullnose",
+                                  "presets": {}})()
+    answer = state.reconcile(operation, {"tool-1": library_tool}, {}, "tool-1")
+
+    assert answer["state"] == state.RETIRED, answer
+    assert answer.get("leave alone") is True, (
+        "a preset the add-in cannot find was read as an operation that moved: %s"
+        % answer.get("why"))
+    assert marks.plan(operation, answer) == {}, "it still wanted to strip it"
+    assert operation.notes == held
+
+
+def test_a_pass_that_would_strip_a_document_strips_nothing():
+    """The circuit breaker, independent of why.
+
+    One or two notes coming off is ordinary -- somebody moved an operation off
+    a shop preset. Fourteen is not an answer, it is a pass that has stopped
+    being able to read something, and removing a note cannot be undone.
+    """
+    off = {"note": {"from": marks.ours("UTP P Copper") + "\nmine",
+                    "to": "mine"}}
+    on = {"note": {"from": "mine", "to": marks.ours("UTP P Copper") + "\nmine"}}
+    changed = {"note": {"from": marks.ours("UTP P Copper"),
+                        "to": marks.ours("UTP P Copper - update available")}}
+
+    assert marks.takes_our_line_off(off) is True
+    assert marks.takes_our_line_off(on) is False
+    assert marks.takes_our_line_off(changed) is False, (
+        "a note being brought up to date read as a note being removed")
+    assert marks.takes_our_line_off({}) is False
+
+    assert config.MOST_NOTES_OFF_AT_ONCE >= 1
+    assert config.REFUSED_PREFIX in config.TOO_MANY_OFF
+    assert "Remove all notes" in config.TOO_MANY_OFF, (
+        "it refuses without saying what to do instead")
+
+
+def test_an_unattended_sweep_never_takes_a_note_off():
+    """Opening a job is the worst moment to act on something going missing.
+
+    Nobody is watching and there is no undo. A sweep may put a note on and
+    bring one up to date; taking one off is left to the person editing that
+    operation, to the button, and to Remove all notes.
+    """
+    import re
+
+    source = open(os.path.join(HERE, "..", "utp", "events.py"),
+                  encoding="utf-8").read()
+    sweep = source[source.index("def mark_document("):]
+    sweep = sweep[:sweep.index("\ndef ")]
+    assert "marks.takes_our_line_off(would)" in sweep, (
+        "the sweep writes whatever it plans, including taking notes off")
+    # and the guard has to come before anything is written
+    guard = sweep.index("marks.takes_our_line_off(would)")
+    wrote = sweep.index("marks.apply(operation, would)")
+    assert guard < wrote, "the guard is after the write"
+
+
+def _already_marked(preset_id="zirc-id", preset_values=None):
+    """An operation carrying a note, adopted on the preset it is sitting on."""
+    held = {"tool_feedCutting": 1000.0} if preset_values is None else preset_values
+
+    class Tool:
+        description = "#15 bullnose"
+        id = "tool-1"
+
+    class Preset:
+        name = "Zirc"
+        id = preset_id
+        parameters = FakePreset("Zirc", params=held).parameters
+        attributes = Attrs({})
+
+    class Params:
+        def itemByName(self, name):
+            if name not in held:
+                return None
+            return FakePreset._Param(name, held[name])
+
+    record = dict(ADOPTED)
+    record[config.KEY_ADOPTED_PRESET] = preset_id
+    operation = Owner(marks.ours("UTP Zirc") + "\nCHECK Z OFFSET", record,
+                      "Green")
+    operation.tool = Tool()
+    operation.toolPreset = Preset()
+    operation.parameters = Params()
+    return operation
+
+
+def _library(presets=None, description="#15 bullnose", tool_id="tool-1"):
+    class LibPreset:
+        def __init__(self, ident, values):
+            self.id, self.name, self.values = ident, "Zirc", values
+
+    held = {}
+    for ident, vals in (presets or {}).items():
+        held[ident] = LibPreset(ident, vals)
+    return type("T", (), {"id": tool_id, "description": description,
+                          "presets": held})()
+
+
+def test_no_reading_however_broken_takes_a_note_off():
+    """A degraded reading must never be acted on destructively.
+
+    Each row is a way the reading has actually been wrong, or plausibly could
+    be. In every one of them the operation is unchanged, still on the preset
+    it was adopted on, still carrying somebody's own line underneath ours --
+    so the only honest answer is to leave it alone.
+
+    The one on 11 October was row 3: a tool in two Hub libraries lost one
+    library's presets from the reading. Every operation on them was stripped.
+    """
+    rows = [
+        ("the libraries could not be read at all", {}),
+        # A different description as well as a different id, or it matches
+        # by description -- which is correct behaviour and not this row.
+        ("the tool is not in the reading",
+         {"someone-else": _library({"zirc-id": {"tool_feedCutting": 1000.0}},
+                                   description="#2 - a different tool",
+                                   tool_id="someone-else")}),
+        ("the tool is there and its preset is missing",
+         {"tool-1": _library({})}),
+        ("the preset is there and reads no values",
+         {"tool-1": _library({"zirc-id": {}})}),
+        ("two tools answer to the same description",
+         {"a": _library({}, tool_id="a"), "b": _library({}, tool_id="b")}),
+    ]
+    for why, tools in rows:
+        operation = _already_marked()
+        before = operation.notes
+        verdict = state.reconcile(operation, tools, {})
+        changes = marks.plan(operation, verdict)
+        assert not marks.takes_our_line_off(changes), (
+            "%s -> it wanted to take the note off (verdict %r: %s)"
+            % (why, verdict["state"], verdict.get("why")))
+        if changes:
+            marks.apply(operation, changes)
+        assert operation.notes == before, (
+            "%s -> the note changed to %r" % (why, operation.notes))
+
+
+def test_a_good_reading_still_says_what_it_should():
+    """The guard above must not be a blanket refusal to decide anything.
+
+    A reading that answers properly still produces a verdict and still marks.
+    Without this, every row above could pass by doing nothing at all, which is
+    the failure mode of a safety net that is too wide.
+    """
+    operation = _already_marked()
+    tools = {"tool-1": _library({"zirc-id": {"tool_feedCutting": 1000.0}})}
+    verdict = state.reconcile(operation, tools, {})
+    assert verdict["state"] == state.CURRENT, verdict
+
+    # And when the shop moves the feed, it goes yellow rather than silent.
+    tools = {"tool-1": _library({"zirc-id": {"tool_feedCutting": 1500.0}})}
+    verdict = state.reconcile(operation, tools, {})
+    assert verdict["state"] == state.BEHIND, verdict
+    assert "available" in marks.note_line(verdict)
+
+
+def test_what_a_preset_it_cannot_find_does_to_the_note():
+    """Two cases, and only one of them is evidence.
+
+    This test asserted the wrong thing for a few hours on 12 October. It was
+    written to pin "a preset it cannot find never clears a note", which was
+    an overcorrection: plan() short-circuits on "leave alone" before
+    during_their_edit, so a note frozen that way is frozen for ever, and an
+    operation moved onto an unresolvable preset kept the green dot of a
+    preset it was no longer on while running other feeds. A permanent wrong
+    green is worse than the lost note it was meant to prevent.
+
+    Still on the preset it was adopted on -> the library has stopped
+    answering, so leave the note alone. Moved onto something that cannot be
+    resolved -> the old note describes a preset it is not on, so it goes.
+    """
+    # Has not moved: the record still names the preset it is sitting on.
+    staying = _already_marked(preset_id="zirc-id")
+    before = staying.notes
+    verdict = state.reconcile(staying, {"tool-1": _library({})}, {})
+    assert verdict["state"] == state.RETIRED, verdict
+    assert verdict.get("leave alone") is True, verdict.get("why")
+    assert marks.plan(staying, verdict) == {}
+    assert staying.notes == before
+
+    # Has moved: no record for the preset it is on now.
+    moved = _already_marked(preset_id="ss-trace-id")
+    moved.toolPreset.name = "SS (Trace)"
+    moved.attributes = Attrs({})
+    verdict = state.reconcile(moved, {"tool-1": _library({})}, {})
+    assert verdict["state"] == state.RETIRED, verdict
+    assert not verdict.get("leave alone"), (
+        "a note was frozen on an operation that had moved, which freezes it "
+        "for ever: plan() never reconsiders a leave-alone verdict")
+    assert marks.takes_our_line_off(marks.plan(moved, verdict)), (
+        "it kept a note describing a preset the operation is not on")
+
+
+def test_fusions_own_default_preset_still_clears_the_note():
+    """The guard above must not swallow the case that is a real answer.
+
+    Somebody moving an operation onto Fusion's own preset has genuinely taken
+    it off the shop's, and the note has to go -- it did so correctly three
+    times in the same log. If this passes only because everything is left
+    alone, the safety net is too wide to be worth anything.
+    """
+    operation = _already_marked()
+    operation.toolPreset.name = "Default preset"
+    tools = {"tool-1": _library({"zirc-id": {"tool_feedCutting": 1000.0}})}
+    verdict = state.reconcile(operation, tools, {})
+    assert verdict["state"] == state.NOT_UTP, verdict
+    assert not verdict.get("leave alone"), verdict
+    assert marks.takes_our_line_off(marks.plan(operation, verdict)), (
+        "an operation moved onto Fusion's own preset kept a UTP note")
+
+
+def test_a_preset_remade_at_the_shop_is_still_found_by_name():
+    """The root cause behind "preset not in the library".
+
+    A preset id survives being copied into a document -- measured on the
+    bench, both sides of a copy carry the same guid. What does not survive is
+    the shop deleting a preset and making it again: the library's new one has
+    a fresh id, and every document already holding the old one stops matching
+    for ever, silently, and its note is taken off.
+
+    That is what happened to "SS (Bore)" and "SS (Trace)" on 10 October, on a
+    day the shop was adding presets of that family. 170 of 170 tools matched
+    by id; the presets did not match at all.
+    """
+    operation = _already_marked(preset_id="the-old-id")
+    operation.toolPreset.name = "SS (Trace)"
+
+    class Remade:
+        id = "a-brand-new-id"
+        name = "SS (Trace)"
+        values = {"tool_feedCutting": 1000.0}
+
+    library_tool = type("T", (), {"id": "tool-1", "description": "#15 bullnose",
+                                  "presets": {"a-brand-new-id": Remade()}})()
+    verdict = state.reconcile(operation, {"tool-1": library_tool}, {})
+    assert verdict["state"] == state.CURRENT, verdict
+    assert verdict["matched preset by"] == "name within the tool", verdict
+    assert verdict["libraryPresetId"] == "a-brand-new-id"
+
+
+def test_two_presets_on_one_tool_sharing_a_name_is_not_guessed_at():
+    """The fallback refuses rather than picking one.
+
+    It is narrow by design: tools fall back to a description across every
+    library, which is how two tools sharing one became ambiguous. This looks
+    only inside the tool already matched -- and still will not guess.
+    """
+    operation = _already_marked(preset_id="the-old-id")
+    operation.toolPreset.name = "SS (Trace)"
+
+    def twin(ident):
+        return type("P", (), {"id": ident, "name": "SS (Trace)",
+                              "values": {"tool_feedCutting": 1000.0}})()
+
+    library_tool = type("T", (), {"id": "tool-1", "description": "#15 bullnose",
+                                  "presets": {"a": twin("a"), "b": twin("b")}})()
+    verdict = state.reconcile(operation, {"tool-1": library_tool}, {})
+    assert verdict["state"] == state.RETIRED, verdict
+    assert "share the name" in verdict["matched preset by"], verdict
+    # and still never clears the note
+    assert verdict.get("leave alone") is True
+    assert marks.plan(operation, verdict) == {}
+
+
+def test_nothing_reads_a_name_that_is_not_there():
+    """A NameError in events.py cannot be caught by importing it.
+
+    Most of this package needs Fusion, so pytest never loads events.py,
+    passes.py, survey.py, dropdown.py, integration.py or the job files. A
+    name that does not exist in one of them is invisible until somebody runs
+    the bench suite -- which is how `looked_at` survived in a function it was
+    no longer passed to and took six bench checks down with it.
+
+    A scope chain, not a flat set of every name in the file. The first
+    version of this collected names from inside every function body as
+    though they were module level, so the bug it was written for sat in
+    front of it and it passed. The second had no enclosing scopes and called
+    every closure a fault. Neither was worth having.
+    """
+    import ast
+    import builtins
+
+    root = os.path.join(HERE, "..", "..", "..")
+    # The agent hands a job these; nothing else binds them.
+    given = {"app", "ui", "say", "guard", "answer", "__file__", "__name__"}
+    missing = []
+
+    def scope_of(node):
+        """Names bound directly in this scope, not inside nested functions."""
+        found = set()
+        stack = list(ast.iter_child_nodes(node))
+        while stack:
+            sub = stack.pop()
+            if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                ast.Lambda, ast.ClassDef)):
+                found.add(getattr(sub, "name", ""))
+                continue          # its body is its own scope
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
+                found.add(sub.id)
+            elif isinstance(sub, ast.arg):
+                found.add(sub.arg)
+            elif isinstance(sub, ast.ExceptHandler) and sub.name:
+                found.add(sub.name)
+            elif isinstance(sub, (ast.Import, ast.ImportFrom)):
+                for alias in sub.names:
+                    found.add((alias.asname or alias.name).split(".")[0])
+            elif isinstance(sub, (ast.Global, ast.Nonlocal)):
+                found.update(sub.names)
+            stack.extend(ast.iter_child_nodes(sub))
+        return found - {""}
+
+    def loads_in(node):
+        """Names read directly in this scope, not inside nested functions."""
+        found = []
+        stack = list(ast.iter_child_nodes(node))
+        while stack:
+            sub = stack.pop()
+            if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                ast.Lambda, ast.ClassDef)):
+                continue
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
+                found.append(sub)
+            stack.extend(ast.iter_child_nodes(sub))
+        return found
+
+    def walk_scope(node, available, where, filename):
+        here = available | scope_of(node)
+        # A function's own parameters and anything it assigns, including
+        # further down than the read -- Python binds for the whole scope.
+        for name in loads_in(node):
+            if name.id not in here:
+                missing.append("%s:%d %s reads %r, which is not bound in any "
+                               "scope around it"
+                               % (filename, name.lineno, where, name.id))
+        for sub in ast.iter_child_nodes(node):
+            for inner in ([sub] if isinstance(sub, (ast.FunctionDef,
+                                                    ast.AsyncFunctionDef,
+                                                    ast.ClassDef)) else []):
+                walk_scope(inner, here,
+                           "%s()" % getattr(inner, "name", "?"), filename)
+            if not isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                    ast.ClassDef)):
+                for deeper in ast.walk(sub):
+                    if isinstance(deeper, (ast.FunctionDef,
+                                           ast.AsyncFunctionDef,
+                                           ast.ClassDef)):
+                        walk_scope(deeper, here,
+                                   "%s()" % getattr(deeper, "name", "?"),
+                                   filename)
+
+    looked = 0
+    for folder, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs
+                   if d not in ("__pycache__", ".git", "dist", "tests",
+                                ".vscode", "scratchpad")]
+        for name in sorted(names):
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(folder, name)
+            try:
+                tree = ast.parse(open(path, encoding="utf-8").read())
+            except SyntaxError:
+                missing.append("%s does not parse" % name)
+                continue
+            looked += 1
+            walk_scope(tree, set(dir(builtins)) | given, "module", name)
+
+    assert looked > 10, "found almost nothing to check; the walk is wrong"
+    assert missing == [], "\n".join(sorted(set(missing))[:20])
+
+
+def test_a_preset_remade_at_the_shop_is_not_added_twice():
+    """The other half of matching a remade preset by name.
+
+    reconcile finds it by name, so the operation keeps its note. missing()
+    asks a different question -- "has this document ever seen this preset" --
+    and asked it by id alone, so a preset deleted and made again at the shop
+    was reported as never seen and brought in under the same bare name.
+
+    Two dropdown entries with one name and different feeds, nothing to tell
+    them apart, neither removable because both look like somebody's, and one
+    more every time the shop remakes it. A person picking by name at a
+    machine has a coin flip between old feeds and new.
+    """
+    class Held:
+        def __init__(self, name, ident):
+            self.name, self.id = name, ident
+            self.attributes = Attrs({})
+
+    class Tool:
+        def __init__(self, items):
+            self._items = list(items)
+
+        @property
+        def presets(self):
+            items = self._items
+
+            class Coll:
+                count = len(items)
+
+                def item(self, i):
+                    return items[i]
+            return Coll()
+
+    class LibPreset:
+        def __init__(self, name, ident):
+            self.name, self.id = name, ident
+            self.values = {"tool_feedCutting": 1500.0}
+
+    # The document holds the preset under the id it had before the shop
+    # remade it.
+    tool = Tool([Held("P Titanium", "the-old-id")])
+    library_tool = type("T", (), {
+        "presets": {"a-new-id": LibPreset("P Titanium", "a-new-id")}})()
+
+    assert presets.missing(tool, library_tool) == [], (
+        "it would add a second entry called P Titanium")
+    assert presets.represented(tool, "a-new-id", by_name="P Titanium") is True
+
+    # A genuinely new preset is still brought in.
+    library_tool.presets["other"] = LibPreset("P Copper", "other")
+    assert [p.name for p in presets.missing(tool, library_tool)] == ["P Copper"]
+
+
+def test_the_lost_marks_count_counts_notes_and_not_verdicts():
+    """What it was built to notice is a note disappearing.
+
+    It counted verdict states, and reconcile never reads an operation's note
+    -- so an undo or a revert that strips thirty notes moves no verdict and
+    the warning cannot fire. What did move it was the library reading
+    degrading, and the line it logged then said "this add-in did not take
+    them off", which is wrong in exactly that case.
+    """
+    import inspect
+
+    from utp import events, state
+
+    source = inspect.getsource(events._record_sweep)
+    assert "marks.touched" in source, (
+        "the count is not asked of the operation, so it cannot see a note go")
+    assert "v.get(\"state\")" not in source, (
+        "still counting verdicts, which say nothing about notes")
+
+    # And reconcile really does not read an operation's note, which is why
+    # counting verdicts could never see one go. Asked of the code that reads,
+    # not of the prose: the word appears in a comment now.
+    reads = [line for line in inspect.getsource(state.reconcile).splitlines()
+             if "notes" in line and not line.strip().startswith("#")]
+    assert reads == [], reads
+
+
+def test_the_name_fallback_refuses_across_merged_libraries():
+    """"Inside the tool already matched" is across machines, not within one.
+
+    library.absorb unions the presets of every Hub library holding a tool
+    id onto one object -- 80 duplicate occurrences across 382 tools here.
+    Two libraries can each hold a "P Steel" with different feeds. When one
+    machine's is remade, matching by name would silently find the OTHER
+    machine's and tell somebody their feeds had moved to a number from a
+    different machine. The len(same) == 1 refusal cannot catch it, because
+    by then only one of the two is visible.
+    """
+    operation = _already_marked(preset_id="gone-id")
+    operation.toolPreset.name = "P Steel"
+
+    class Other:
+        id, name = "other-machines-id", "P Steel"
+        values = {"tool_feedCutting": 400.0}
+
+    merged = type("T", (), {"id": "tool-1", "description": "#15 bullnose",
+                            "presets": {"other-machines-id": Other()},
+                            "also_in": ["Kitamura HX250G.hub"]})()
+    verdict = state.reconcile(operation, {"tool-1": merged}, {})
+    assert verdict["state"] == state.RETIRED, verdict
+    assert "libraries" in verdict["matched preset by"], verdict
+    assert verdict.get("leave alone") is not True or verdict.get("record"), (
+        "it froze the note on a tool it cannot reason about")
+
+    # One library, same shape: the fallback is allowed to do its job.
+    alone = type("T", (), {"id": "tool-1", "description": "#15 bullnose",
+                           "presets": {"other-machines-id": Other()},
+                           "also_in": []})()
+    verdict = state.reconcile(operation, {"tool-1": alone}, {})
+    assert verdict["matched preset by"] == "name within the tool", verdict

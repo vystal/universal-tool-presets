@@ -208,6 +208,14 @@ def _ours_in(existing):
     return bool(_mine((existing or "").splitlines()))
 
 
+def takes_our_line_off(changes):
+    """Whether this plan removes the add-in's line rather than changing it."""
+    note = (changes or {}).get("note")
+    if not note:
+        return False
+    return _ours_in(note.get("from")) and not _ours_in(note.get("to"))
+
+
 def plan(operation, verdict, during_their_edit=False):
     """What would change on this operation. Empty means nothing to do.
 

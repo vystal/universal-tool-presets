@@ -169,3 +169,35 @@ def test_a_byte_order_mark_in_source_json_is_read_anyway():
         assert found["asset"] == "utp.zip"
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+def test_a_stamp_that_runs_ahead_does_not_wedge_the_machine(tmp_path):
+    """The loader asks the code what it is, not a note beside it.
+
+    Measured on this machine, 12 October: version.txt said 0.49.0 with 0.48.2
+    unpacked next to it and no install line in the log for either. The loader
+    compared the release against the stamp, found them equal, and skipped the
+    download -- so the machine would have stayed on 0.48.2 for ever while
+    reporting 0.49.0 in every report it wrote.
+
+    A record that can disagree with the thing it records is a wedge waiting
+    for someone to trip over it.
+    """
+    loader = _loader(str(tmp_path))
+
+    # Code on disk says one thing, the stamp beside it says another.
+    code = os.path.join(loader._CACHE, "code", "utp")
+    os.makedirs(code, exist_ok=True)
+    with open(os.path.join(code, "version.py"), "w", encoding="utf-8") as handle:
+        handle.write('VERSION = "0.48.2"\n')
+    with open(os.path.join(code, "__init__.py"), "w", encoding="utf-8") as handle:
+        handle.write("")
+    with open(loader._STAMP, "w", encoding="utf-8") as handle:
+        handle.write("0.49.0")
+
+    assert loader._installed() == "0.48.2", (
+        "it believed the stamp, so a newer release would be skipped for ever")
+
+    # And with no readable code, the stamp is still the fallback.
+    os.remove(os.path.join(code, "version.py"))
+    assert loader._installed() == "0.49.0"

@@ -21,6 +21,27 @@ RETIRED = "preset not in the library"
 UNKNOWN = "unknown"
 
 
+def _still_on_what_it_was_adopted_on(operation):
+    """Whether this operation is adopted and has not moved since.
+
+    The one question that separates "the add-in has stopped being able to see
+    this" from "somebody moved the operation off a shop preset". Moving it
+    changes which preset it is on, and the record names the preset it was
+    adopted on, so the two cannot be confused.
+
+    Read here rather than taken from the verdict, because the verdict's
+    record is only filled in further down, after the tool has resolved --
+    and the cases this guards are the ones where it never does.
+    """
+    try:
+        preset = _attribute(operation, "toolPreset")
+        if preset is None:
+            return False
+        return _record(operation, preset.id) is not None
+    except Exception:
+        return False
+
+
 def reconcile(operation, library_tools, seen=None, tool_id=None):
     """What the add-in would say about one operation.
 
@@ -96,6 +117,26 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
             verdict["why"] = ("a shop library would not open, so whether its "
                               "tool is a UTP cannot be told")
             return verdict
+        if _still_on_what_it_was_adopted_on(operation):
+            # Adopted, and still sitting on the very preset it was adopted
+            # on, but its tool no longer resolves. Somebody moving an
+            # operation to a tool outside the shop libraries moves it to a
+            # different preset too, so a record that still matches means it
+            # has not moved and the reading has stopped answering for it.
+            #
+            # The same rule as the vanished preset below. It was applied
+            # there first and deliberately not here, on the reasoning that a
+            # tool absent from a good reading is a definite answer. The
+            # degraded-reading tests disagreed within a minute: a reading
+            # that comes back empty, or missing one library's tools, says
+            # exactly this and takes every note in the document off.
+            verdict["state"] = UNKNOWN
+            verdict["leave alone"] = True
+            verdict["why"] = ("its tool is not in the reading (%s), and it is "
+                              "still on the preset it was adopted on, so this "
+                              "is a reading that has stopped working rather "
+                              "than an operation that moved" % how)
+            return verdict
         verdict["state"] = NOT_UTP
         verdict["why"] = "its tool is not in any Hub library: %s" % how
         return verdict
@@ -137,7 +178,61 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
         source = presets.source_of(preset)
         if source:
             library_preset = library_tool.presets.get(source)
-            verdict["matched preset by"] = "sourcePreset attribute"
+            if library_preset is not None:
+                verdict["matched preset by"] = "sourcePreset attribute"
+        if library_preset is None:
+            # By name, within this one tool, when the name is unambiguous
+            # there.
+            #
+            # A preset id survives being copied into a document -- measured,
+            # both sides of a copy carry the same guid. What does not survive
+            # is the shop deleting a preset and making it again: the library's
+            # new one has a fresh id and every document already holding the
+            # old one stops matching, for ever, silently.
+            #
+            # That is what happened to "SS (Bore)" and "SS (Trace)" on
+            # 10 October, on a day the shop was actively adding presets of
+            # that family. The tools matched 170 of 170 by id; the presets
+            # did not match at all.
+            #
+            # Narrow on purpose. Tools fall back to a description across every
+            # library, which is why two tools sharing one is ambiguous. This
+            # looks only inside the tool already matched, where a preset name
+            # is what a person picks by and a duplicate is near enough
+            # unheard of -- and it still refuses when there is more than one.
+            # without_suffix, as line 147 already does for the same name a
+            # few lines above. Without it the fallback compares
+            # "P Titanium (latest)" against the library's "P Titanium" and
+            # never matches -- so it rescued presets that arrived with the
+            # tool and missed every copy the add-in made, which is the case
+            # it was written for.
+            # Not when this tool's presets were merged from more than one
+            # Hub library. library.absorb unions them onto one tool id, so
+            # "inside the tool already matched" is across machines, not
+            # within one: two libraries can each hold a "P Steel" with
+            # different feeds, and when one is remade the fallback would
+            # silently match the OTHER machine's and tell somebody their
+            # feeds had moved to a number from a different machine.
+            #
+            # The len(same) == 1 refusal below does not catch it, because by
+            # then only one of the two is still visible.
+            merged = bool(getattr(library_tool, "also_in", None))
+            wanted = presets.without_suffix((preset.name or "").strip())
+            if merged:
+                verdict["matched preset by"] = (
+                    "this tool is in %d libraries, so a preset cannot be "
+                    "matched by name" % (len(library_tool.also_in) + 1))
+                wanted = ""
+            if wanted:
+                same = [p for p in library_tool.presets.values()
+                        if presets.without_suffix(
+                            (p.name or "").strip()) == wanted]
+                if len(same) == 1:
+                    library_preset = same[0]
+                    verdict["matched preset by"] = "name within the tool"
+                elif len(same) > 1:
+                    verdict["matched preset by"] = (
+                        "%d presets on this tool share the name" % len(same))
     else:
         verdict["matched preset by"] = "id"
     verdict["preset found in library"] = library_preset is not None
@@ -229,6 +324,47 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
         verdict["state"] = RETIRED
         verdict["why"] = ("its preset is not in the library tool any more, so "
                           "there is nothing to compare it against")
+        # Only when the operation has not moved.
+        #
+        # This was unconditional for a few hours on 12 October, on the
+        # reasoning that "a note left standing a little too long costs a
+        # second look". It does not cost a second look. plan() short-circuits
+        # on "leave alone" before it considers during_their_edit, so nothing
+        # ever takes the note off again -- not the next pass, not the button,
+        # not the person editing that very operation. Only Remove all notes.
+        #
+        # An operation moved onto a preset that cannot be resolved therefore
+        # kept the green note and green dot of a preset it was no longer on,
+        # for ever, while running different feeds. A permanent wrong green is
+        # the worst thing in here and the exact failure this add-in exists to
+        # prevent, so the cure was worse than the complaint.
+        #
+        # What that was meant to fix -- five operations on "SS (Bore)" and
+        # "SS (Trace)" losing their notes on 10 October -- is fixed properly
+        # by the name fallback above, which makes those presets resolve
+        # again. Freezing the note was treating the symptom.
+        if verdict.get("record"):
+            # Still sitting on the very preset it was adopted on, and that
+            # preset can no longer be found. Somebody moving an operation off
+            # a shop preset changes which preset it is on, and _record
+            # withholds the record the moment that happens -- so a record
+            # that still matches means the operation has not moved and the
+            # library has stopped answering for it.
+            #
+            # That is a question this add-in cannot answer, not an answer
+            # that the operation was never tracked, and the difference is the
+            # whole of it: RETIRED takes the note and the colour off.
+            #
+            # Measured the hard way. Until 0.46.0 a tool that appeared in two
+            # Hub libraries lost one library's presets from the reading
+            # entirely, so every operation on one of them read RETIRED and
+            # was stripped -- about fourteen of twenty in one setup on
+            # 11 October, with nothing said. The cause is fixed; this is so
+            # the next cause cannot do the same thing.
+            verdict["leave alone"] = True
+            verdict["why"] += (", and it is still on the preset it was adopted "
+                               "on, so this is a reading that has stopped "
+                               "working rather than an operation that moved")
         return verdict
     verdict["preset"] = library_preset.name
 

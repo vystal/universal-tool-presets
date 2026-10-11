@@ -322,6 +322,22 @@ WRITE_A_REPORT = False
 # after Fusion's snapshot and left the file needing a second save.
 PASS_SECONDS = 2.0
 
+# How many operations one pass may take the add-in's line off before it
+# refuses to take it off any of them.
+#
+# Removing a note is the only thing a pass does that destroys something
+# somebody can see, and there is no undo for it: the add-in's writes are not
+# in Fusion's undo stack. One or two is ordinary -- somebody moved an
+# operation off a shop preset. Fourteen is not an answer, it is a pass that
+# has stopped being able to read something, and on 11 October that is exactly
+# what happened: a tool in two Hub libraries lost one library's presets from
+# the reading, every operation on them read "preset not in the library", and
+# a setup was stripped overnight with nothing said.
+#
+# The cause is fixed. This is here because the next cause will be different.
+# Mass removal is what Remove all notes is for, and that asks first.
+MOST_NOTES_OFF_AT_ONCE = 3
+
 
 # What the busy bar in the corner says at each stage of a button press.
 #
@@ -540,6 +556,17 @@ MARKED = "Marked %d of %d operations."
 # the way back was telling them something untrue about the one thing they would
 # reach for. Remove all notes is the way back, and it is tested.
 MARKED_TAIL = "Nothing saved yet. Remove all notes undoes it."
+# Shown whatever the Summary switch says. This is not a summary, it is the
+# add-in refusing to do something it cannot take back.
+# A message starting with this is shown whatever the Summary switch says.
+REFUSED_PREFIX = "REFUSED:"
+TOO_MANY_OFF = ("REFUSED: this pass would have taken the UTP note off %d "
+                "operations, so it took it off none of them.\n\nThat many at "
+                "once means it has stopped being able to read something -- "
+                "most often a shop library that did not open. Nothing has "
+                "been changed. Press Write a debug report and send the file "
+                "on.\n\nIf you genuinely want the notes gone, Remove all "
+                "notes does it and asks first.")
 # Said when the pass ran and every note already read right, because "Marked 0
 # of 8" next to "3 behind" reads like a failure when it is the opposite: the
 # three behind are behind, their notes say so, and nothing needed rewriting.

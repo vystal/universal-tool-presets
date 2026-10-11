@@ -122,7 +122,7 @@ def source_of(preset):
 
 
 
-def represented(tool, library_preset_id):
+def represented(tool, library_preset_id, by_name=None):
     """Whether this document knows about a library preset at all.
 
     Either as the copy that arrived with the tool, which keeps the library
@@ -135,6 +135,14 @@ def represented(tool, library_preset_id):
             if preset.id == library_preset_id:
                 return True
             if source_of(preset) == library_preset_id:
+                return True
+            if by_name is not None and (preset.name or "").strip() == by_name:
+                # Same name, on the same tool. A preset deleted and made
+                # again at the shop has a new id, so by id alone this
+                # document has "never seen" a preset it is already holding,
+                # and bringing it in gives two dropdown entries with one
+                # name and different feeds -- nothing to tell them apart,
+                # and neither removable because both look like somebody's.
                 return True
     except Exception:
         pass
@@ -149,7 +157,8 @@ def missing(tool, library_tool):
     brings it in and somebody would have to re-select the tool to reach it.
     """
     return [preset for preset in library_tool.presets.values()
-            if not represented(tool, preset.id)]
+            if not represented(tool, preset.id,
+                               by_name=(preset.name or "").strip())]
 
 
 def _ours_by_source(tool, library_tool):

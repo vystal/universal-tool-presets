@@ -94,7 +94,58 @@ class Bench:
         # down. Measured: after a suite run the shop machine read every switch
         # off, which is a test making the thing it tests worse.
         self.chosen = os.path.exists(config.SETTINGS_CHOSEN)
+        # Every switch on for the duration. This line was pushed inside
+        # _repair by a careless insertion and left after its return, so the
+        # suite silently stopped forcing them and ran against whatever the
+        # machine happened to be set to -- which is the exact failure the
+        # comment above warns about.
         settings.save({key: True for key, _l, _g, _s in settings.CONTROLS})
+        # And whatever the last run left behind.
+        self.repaired = self._repair()
+
+    def _repair(self):
+        """Put right anything a run that died part-way left on the document.
+
+        Every check restores what it changes in a finally, which is not the
+        same as the document being clean when the next run starts -- a run
+        can be killed, Fusion can be closed, a document can be recovered
+        from halfway through one. On 12 October an aborted run left a
+        schema-5 record on an operation, and the next run reported eleven
+        failures with one cause: the add-in correctly refusing to write to a
+        file from a newer version of itself. None of it was about the code,
+        and working that out cost two more runs.
+
+        Only this add-in's own leavings, and only the ones that make a run
+        lie. Returns what it put right, so the suite can say so rather than
+        quietly tidying up behind itself.
+        """
+        put_right = []
+        for operation in self.operations():
+            try:
+                found = operation.attributes.itemByName(
+                    config.ATTRIBUTE_GROUP, config.KEY_RECORD)
+                if found is None:
+                    continue
+                record = json.loads(found.value)
+            except Exception:
+                continue
+            if record.get("s", 0) <= config.SCHEMA:
+                continue
+            # A record claiming a schema this add-in does not understand
+            # stands the whole suite down. Nothing writes one but the check
+            # that tests exactly that, so one still here is a leftover.
+            try:
+                with marks.holding():
+                    found.deleteMe()
+                put_right.append("%s carried a schema %s record"
+                                 % (getattr(operation, "name", "?"),
+                                    record.get("s")))
+            except Exception:
+                put_right.append("%s carries a schema %s record and it could "
+                                 "not be removed"
+                                 % (getattr(operation, "name", "?"),
+                                    record.get("s")))
+        return put_right
 
     def operations(self):
         return survey.walk(self.cam)[0]
@@ -232,6 +283,15 @@ def _may_write_at_all(bench):
         return "FAIL", ("writing is refused: %s. Every check after this that "
                         "expects a write will fail, and several that expect "
                         "nothing will pass for the wrong reason." % held_back)
+    if bench.repaired:
+        # Said, not swallowed. The bench puts right what a run that died
+        # part-way left behind, and a suite that tidies up after itself in
+        # silence cannot be trusted to say when something is wrong. Not a
+        # failure -- the repair is right -- but it has to appear, and after
+        # the check rather than instead of it.
+        return "PASS", ("the add-in may write to the bench. It also carried "
+                        "leftovers from a run that did not finish, now put "
+                        "right: %s" % "; ".join(bench.repaired))
     return "PASS", "the add-in may write to the bench"
 
 

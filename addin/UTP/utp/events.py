@@ -25,7 +25,7 @@ from . import (compat, config, diagnostics, dropdown, library, marks,
                settings, state, survey)
 
 _handlers = []
-_running = {"undo": False}
+_running = {"undo": False, "undoing": None}
 _state = {}
 
 # What the last complete pass over each document found, keyed as _key() keys it.
@@ -314,7 +314,8 @@ def _clear_old_setup_notes(document, why):
         diagnostics.session_log("%s: setups not cleared" % why, error=str(exc))
 
 
-def _record_sweep(document, all_operations, cursor, looked, wrote):
+def _record_sweep(document, all_operations, cursor, looked, wrote,
+                  looked_at):
     """Where this pass got to, so the next one carries on. Returns what is left.
 
     The cursor is why a job too big for one pass is finished by the next few
@@ -324,7 +325,43 @@ def _record_sweep(document, all_operations, cursor, looked, wrote):
     _state.setdefault("save cursor", {})[_key(document)] = (
         (cursor + looked) % len(all_operations) if all_operations else 0)
     whole = looked >= len(all_operations)
+    # How many of this document's operations carry one of our notes, kept
+    # from pass to pass so a drop is a logged fact rather than something
+    # somebody notices days later and nobody can confirm.
+    #
+    # It cannot stop anything -- an undo, a revert and a sync conflict all
+    # happen where this add-in has no say. What it can do is say "this job
+    # had 42 and now has 6", which is the sentence two days of logs could
+    # not produce.
+    # Asked of the operation, not of its verdict. This counted verdict
+    # states, and reconcile never reads an operation's note -- so the one
+    # thing this was built to notice, a note disappearing, could not move
+    # the number at all. What did move it was the library reading degrading,
+    # and the line it then logged said "this add-in did not take them off",
+    # which is wrong in exactly that case.
+    marked = 0
+    for operation, _verdict in looked_at:
+        try:
+            if marks.touched(operation):
+                marked += 1
+        except Exception:
+            pass
+    before = (_swept.get(_key(document)) or {}).get("marked")
+    if whole and before is not None and marked < before - 2:
+        diagnostics.session_log(
+            "THIS JOB HAS LOST MARKS SINCE THE LAST PASS",
+            document=getattr(document, "name", "?"),
+            had=before, now=marked,
+            note=("this add-in did not take them off -- a pass that would "
+                  "remove more than a couple refuses, and a sweep never "
+                  "removes any. An undo takes a note back with the edit it "
+                  "was written into, which is deliberate, and a revert or a "
+                  "sync conflict takes back whatever was saved."))
     _swept[_key(document)] = {
+        # Only from a whole pass. Stored from a partial one it became the
+        # baseline the next comparison was made against, so on any document
+        # needing more than one pass the comparison meant nothing.
+        "marked": marked if whole else before,
         "complete": whole,
         # Which reading of the shop libraries this was judged against. A
         # complete sweep is only worth skipping while that reading is still
@@ -390,6 +427,7 @@ def mark_document(document, why, budget=-1, trigger="open"):
 
         behind = []
         looked_at = []
+        stripped_back = 0
         looked = 0
         for operation in order:
             # The budget is consulted only once something has been done. A
@@ -421,6 +459,23 @@ def mark_document(document, why, budget=-1, trigger="open"):
             if verdict["state"] == state.BEHIND:
                 behind.append((operation, verdict))
             would = marks.plan(operation, verdict)
+            if marks.takes_our_line_off(would):
+                # A sweep nobody asked for never takes a note off. It can put
+                # one on and it can bring one up to date; removing is left to
+                # the person editing that one operation, to the button --
+                # which refuses past a handful at once -- and to Remove all
+                # notes, which asks first.
+                #
+                # This is the rule that would have stopped 11 October on its
+                # own. A tool in two Hub libraries lost one library's presets
+                # from the reading, every operation on them read "preset not
+                # in the library", and opening the job swept it and stripped
+                # about fourteen of twenty with nothing said. A sweep running
+                # because a document opened is the worst possible moment to
+                # act on something having gone missing: nobody is watching,
+                # and what it removes cannot be undone.
+                stripped_back += 1
+                continue
             if not would:
                 continue
             planned += 1
@@ -461,7 +516,8 @@ def mark_document(document, why, budget=-1, trigger="open"):
         if looked >= len(all_operations) and allowed:
             _clear_old_setup_notes(document, why)
 
-        left = _record_sweep(document, all_operations, cursor, looked, wrote)
+        left = _record_sweep(document, all_operations, cursor, looked,
+                             wrote, looked_at)
         diagnostics.session_log(
             why, document=getattr(document, "name", "?"), verdicts=counts,
             looked_at=looked, of=len(all_operations),
@@ -469,6 +525,7 @@ def mark_document(document, why, budget=-1, trigger="open"):
             left_for_the_next_save=left or None,
             seconds=round(time.time() - started, 2),
             would_mark=planned, wrote=wrote, did=did[:20] or "nothing",
+            notes_left_alone=stripped_back or None,
             failed=failed or None, held_back=held_back)
         return wrote
 
@@ -702,7 +759,19 @@ class _CommandStarting(adsk.core.ApplicationCommandEventHandler):
                 # raised no operation event looks exactly like a handler that
                 # never ran, and the one piece of safety machinery here cannot
                 # be told apart from nothing happening at all.
+                # Named. Three sessions of logs held 243 undo events and
+                # not one said which job they applied to, so a burst of 27 in
+                # eight seconds -- which is somebody holding Ctrl+Z, and which
+                # takes this add-in's notes back with the edits they undo,
+                # deliberately -- could not be tied to the document that lost
+                # its marks.
+                try:
+                    _running["undoing"] = getattr(
+                        adsk.core.Application.get().activeDocument, "name", "?")
+                except Exception:
+                    _running["undoing"] = "?"
                 diagnostics.session_log("undo or redo started",
+                                        document=_running["undoing"],
                                         command=args.commandId)
         except Exception:
             pass
@@ -719,8 +788,42 @@ class _CommandTerminated(adsk.core.ApplicationCommandEventHandler):
                 return
             if str(args.commandId) in config.EDIT_COMMANDS:
                 _mark_what_they_just_edited(args.commandId)
+                return
+            _catch_up_on_what_was_already_open()
         except Exception as exc:
             diagnostics.session_log("command end handler failed", error=str(exc))
+
+
+def _catch_up_on_what_was_already_open():
+    """Sweep a job nobody has swept yet, after some command has finished.
+
+    All three ordinary triggers need an event that may never come. The
+    document was opened before this add-in loaded, so documentOpened never
+    fired. The person was already in Manufacture, so workspaceActivated never
+    fired. And an edit finishing is gated on a warm library, which only those
+    two warm -- and operationBaseChanged does not fire for an edit at all
+    (config.py:164, measured). Nothing is left.
+
+    Measured on another machine, 11 October: four hours, 37 saves, 243 undo
+    events, zero CAM events. Every save logged "this job has not been swept
+    this session", in a file nobody reads.
+
+    Here rather than at load, because reading the Hub while Fusion is still
+    starting is its own measured failure. A command finishing means Fusion is
+    answering. Once per document per session: _swept is written whether or
+    not anything was marked, so this cannot loop.
+    """
+    try:
+        app = adsk.core.Application.get()
+        document = app.activeDocument
+        if document is None or _swept.get(_key(document)) is not None:
+            return
+        if _cam_of(document) is None:
+            return                      # nothing to sweep
+        catch_up(document, "a job that was already open")
+    except Exception as exc:
+        diagnostics.session_log("could not catch up on what was open",
+                                error=str(exc))
 
 
 def _mark_what_they_just_edited(command):
@@ -760,7 +863,19 @@ def _mark_what_they_just_edited(command):
     # minute window means one read however many operations get edited. Only when
     # already warm, because a cold read here is what the _waiting check below
     # exists to avoid -- pressing Cancel reaches this line too.
-    if library.warm():
+    # Warm, or this document has never been swept at all. The second half
+    # is new: the gate was "only when already warm", and nothing else warms
+    # it when the job was open before the add-in loaded, so the add-in sat
+    # out the whole session. Cancel reaches this line too, which is why it
+    # is once per document and not every time.
+    never_swept = _swept.get(_key(app.activeDocument)) is None
+    if library.warm() or never_swept:
+        # A hand-changed feed keeps its green note otherwise. _forget_sweep_of
+        # was the fix for that and it lives in _OperationChanged, which
+        # config.py:164 measured does not fire for an edit -- so the fix was
+        # in unreachable code and a settled job would not look again until
+        # the reading went stale, fifteen minutes later.
+        _swept.pop(_key(app.activeDocument), None)
         _warm_now("an edit finished (%s)" % command)
         # And carry the sweep on, which is the third of the three recurring
         # triggers that let a document bigger than one pass ever finish. Free
@@ -976,8 +1091,23 @@ def arm(app):
         except Exception as exc:
             diagnostics.session_log("could not listen to %s" % label,
                                     error=str(exc))
+    # Hold the things the subscriptions hang off. _handlers keeps the event
+    # and the handler; the CAM path needed its manager held too or Python
+    # collected the subscription and the listener went silent mid-session.
+    # The same reasoning applies to userInterface, which was read inline and
+    # kept by nobody -- and workspaceActivated is the only thing that warms a
+    # cold library cache, so it is the worst one to lose.
+    _held["app"] = app
+    _held["ui"] = app.userInterface
+
     diagnostics.session_log("listening", to=armed,
                             writing=config.MAY_WRITE_ON_EVENTS)
+
+    # Deliberately no sweep here. Reading the Hub at load time is a measured
+    # failure: Fusion is still showing "Preparing your experience", the read
+    # goes nowhere and the libraries are never read -- see _WorkspaceActivated
+    # below, which is where that was learnt. A job already open is picked up
+    # by the heartbeat in _CommandTerminated instead, once Fusion is answering.
     return armed
 
 

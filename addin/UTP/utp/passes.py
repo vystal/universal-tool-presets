@@ -533,13 +533,39 @@ def run(app, allow_writing=True):
             # part of it is wrong has been wrong three times.
             spent = {"deciding what to mark": 0.0, "writing marks": 0.0,
                      "recording the verdict": 0.0}
-            for index, (operation, verdict) in enumerate(decided):
+            # Planned for every operation before any of it is written, so
+            # the pass can see what it is about to do as a whole. A pass that
+            # would take the note off a dozen operations has almost certainly
+            # stopped being able to read something, and the one thing it must
+            # not do is act on that.
+            for operation, verdict in decided:
                 try:
-                    # Worked out whether or not it is allowed to happen, so the
-                    # decisions can be read and argued with either way.
                     mark = time.time()
                     verdict["would"] = marks.plan(operation, verdict)
                     spent["deciding what to mark"] += time.time() - mark
+                except Exception:
+                    verdict["would"] = {}
+                    report.failed("could not work out %s" % getattr(
+                        operation, "name", "an operation"))
+            stripping = [v for _op, v in decided
+                         if marks.takes_our_line_off(v.get("would"))]
+            if writing and len(stripping) > config.MOST_NOTES_OFF_AT_ONCE:
+                report.failed(config.TOO_MANY_OFF % len(stripping))
+                report.note("REFUSED TO TAKE THE NOTES OFF",
+                            operations=[v["operation"] for v in stripping][:10],
+                            count=len(stripping),
+                            why=("a pass that removes this many notes has "
+                                 "stopped being able to read something, and "
+                                 "Remove all notes is what asks first"))
+                for verdict in stripping:
+                    verdict["would"] = {}
+                    verdict["held back"] = "would have taken the note off"
+                refused_to_strip = len(stripping)
+            else:
+                refused_to_strip = 0
+
+            for index, (operation, verdict) in enumerate(decided):
+                try:
                     if writing and verdict["would"]:
                         mark = time.time()
                         try:
@@ -559,7 +585,7 @@ def run(app, allow_writing=True):
                     report.operation(verdict)
                     spent["recording the verdict"] += time.time() - mark
                 except Exception:
-                    report.failed("could not work out %s" % getattr(
+                    report.failed("could not write to %s" % getattr(
                         operation, "name", "an operation"))
                 if index and index % config.OPERATIONS_PER_CHUNK == 0:
                     adsk.doEvents()
@@ -593,6 +619,12 @@ def run(app, allow_writing=True):
                 # exactly what it should: worked everything out and wrote none
                 # of it.
                 tail = config.STOOD_DOWN_TAIL % len(operations)
+            elif refused_to_strip:
+                # Said first and whatever the Summary switch is set to. This
+                # is not a summary of a pass that went well, it is the add-in
+                # declining to do the one thing it cannot take back.
+                headline = config.TOO_MANY_OFF % refused_to_strip
+                tail = config.MARKED_TAIL
             elif writing:
                 headline = (config.MARKED % (wrote, len(operations)) if wrote
                             else config.MARKED_NOTHING % len(operations))
