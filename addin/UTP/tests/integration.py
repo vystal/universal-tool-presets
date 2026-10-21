@@ -872,21 +872,22 @@ def _no_churn(bench):
     return "PASS", "%d (latest) copies after one check and after three" % after_one
 
 
-@check("removing the notes removes everything, and a check puts back what it can")
+@check("removing the notes removes everything, and a check puts them all back")
 def _remove_and_restore(bench):
-    """And is honest about what it cannot.
+    """Every one of them, Custom included.
 
     Everything the add-in wrote comes off, records included -- that is what
-    "remove every trace" has to mean. But a grey Custom verdict exists ONLY
-    because of that record: it is what says this operation was deliberately put
-    on a shop preset and has since been changed. Remove the record and a later
-    check cannot tell a hand-tuned operation from one that was never tracked, so
-    it reads "not adopted" and writes no note.
+    "remove every trace" has to mean. This check used to assert that the grey
+    Custom ones never came back, on the reasoning that a Custom verdict exists
+    only because of that record, so removing it loses the fact that somebody
+    put the operation on a shop preset.
 
-    So those do not come back, and the only way back is to pick the preset
-    again. The confirmation dialog says so now; it used to promise that a check
-    "works them all out again", which is true for every verdict except the one
-    somebody is most likely to have.
+    It was never the only evidence. The operation is still sitting on the
+    preset afterwards, and that says the same thing and says it better than
+    anything the add-in writes about itself. An operation on a shop preset
+    whose values differ from it is Custom whether or not a record says so,
+    which is also what stopped such an operation being silent for ever when
+    the add-in had never marked it.
     """
     library.forget()
     passes.run(bench.app)
@@ -917,22 +918,18 @@ def _remove_and_restore(bench):
     passes.run(bench.app)
     back = {o.operationId for o in bench.operations()
             if (o.notes or "").startswith(config.NOTE_PREFIX)}
-    should = marked - custom
-    missing = should - back
+    missing = marked - back
     if missing:
         return "FAIL", ("%d note(s) that should have come back did not"
                         % len(missing))
-    came_back_anyway = (custom & back)
-    if came_back_anyway:
-        return "FAIL", ("%d Custom note(s) came back, which means a record "
-                        "survived Remove all notes" % len(came_back_anyway))
-    # And the wording has to admit it.
-    said = config.UNMARK_CONFIRM.lower()
-    if "custom" not in said:
-        return "FAIL", ("the confirmation does not mention that Custom "
-                        "operations do not come back")
-    return "PASS", ("removed %d, %d came back, %d Custom did not and the "
-                    "dialog says so" % (len(marked), len(back), len(custom)))
+    # The Custom ones specifically, since they are the ones that used not to.
+    lost_custom = custom - back
+    if lost_custom:
+        return "FAIL", ("%d Custom note(s) did not come back, so removing the "
+                        "marks is still irreversible for the operations "
+                        "somebody actually tuned" % len(lost_custom))
+    return "PASS", ("removed %d and all %d came back, %d of them Custom"
+                    % (len(marked), len(back), len(custom)))
 
 
 # ---------------------------------------------------------------------------

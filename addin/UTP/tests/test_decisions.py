@@ -172,7 +172,7 @@ def test_an_untracked_operation_that_was_never_marked_is_left_alone():
     plan() is empty for EVERY state, including states that should mark. The
     dangerous direction is the test below.
     """
-    for kind in (state.NOT_ADOPTED, state.NOT_UTP, state.UNKNOWN, state.RETIRED):
+    for kind in (state.NOT_UTP, state.UNKNOWN, state.RETIRED):
         owner = Owner("my own words", None, "Blue")
         assert marks.plan(owner, verdict(kind)) == {}, kind
 
@@ -203,7 +203,7 @@ def test_what_a_marked_operation_loses_and_what_it_keeps():
             "'never tracked'. Got %s" % (kind, plan))
 
     # Known to be out of the system: the add-in's line goes, their words stay.
-    for kind in (state.NOT_ADOPTED, state.NOT_UTP):
+    for kind in (state.NOT_UTP,):
         plan = marked(kind)
         assert plan.get("note"), "%s left the add-in's line on" % kind
         assert plan["note"]["to"] == "CHECK Z OFFSET", (
@@ -854,12 +854,9 @@ def test_moving_to_another_shop_preset_and_tuning_it_stays_grey():
     assert state._was_adopted(owner) is True, (
         "the fact that it was put on a shop preset is still true")
 
-    # And the verdict that follows must be Custom, which marks, not
-    # "not adopted", which does not.
+    # And the verdict that follows must be Custom, which marks.
     said = marks.note_line(verdict(state.CUSTOM, record=None))
     assert said and config.NOTE_CUSTOM in said
-    nothing = marks.note_line(verdict(state.NOT_ADOPTED))
-    assert nothing is None, "not adopted should still say nothing"
 
 
 def test_a_value_the_document_copy_cannot_hold_does_not_say_pick_the_latest():
@@ -2223,3 +2220,110 @@ def test_a_copy_we_made_does_not_decide_which_library_a_tool_came_from():
         "it went on offering the Okuma's presets on the strength of the "
         "Okuma presets it had already wrongly added"
     )
+
+
+def _on_a_shop_preset_and_changed():
+    """A fresh operation sitting on a shop preset, running something else.
+
+    No note and no record, which is any operation this add-in has not marked
+    yet, and a feed that differs from the preset it is on.
+    """
+    held = {"tool_feedCutting": 1000.0}
+
+    class Tool:
+        description = "#15 bullnose"
+        id = "tool-1"
+
+    class Preset:
+        name = "Zirc"
+        id = "zirc-id"
+        parameters = FakePreset("Zirc", params=held).parameters
+        attributes = Attrs({})
+
+    class Params:
+        def itemByName(self, name):
+            return FakePreset._Param(name, 1500.0)
+
+    operation = Owner("")
+    operation.tool = Tool()
+    operation.toolPreset = Preset()
+    operation.parameters = Params()
+    operation.name = "Face1"
+    return operation, {"tool-1": _library({"zirc-id": dict(held)})}
+
+
+def test_an_operation_on_a_shop_preset_is_never_silent():
+    """The fault that made notes simply not appear.
+
+    An operation sitting on a shop preset whose values differ from it, which
+    the add-in had not marked before, read "never set from a UTP" and wrote
+    nothing: no note, no colour, and -- because marks.record only writes for
+    current, behind and custom -- no record either. So the next pass found no
+    record, reached the same branch, and said it again. The operation was
+    invisible for ever and nothing anywhere said why.
+
+    It is on one. That is what the operation's own preset says, and the preset
+    resolved in the library or the comparison would not have run at all.
+
+    The branch could only be reached this way from 6 October, when an
+    operation on the preset Fusion makes by itself started being answered
+    higher up as NOT_UTP. Measured in the add-in's own logs: every "not
+    adopted" verdict up to 5 October was on "Default preset" and every one
+    from 7 October on was on a shop preset.
+    """
+    operation, tools = _on_a_shop_preset_and_changed()
+
+    verdict = state.reconcile(operation, tools, {})
+    assert verdict["state"] == state.CUSTOM, (
+        "an operation on a shop preset came back %r: %s"
+        % (verdict["state"], verdict.get("why")))
+    assert "never set from a UTP" not in (verdict.get("why") or ""), (
+        "it is on one: %s" % verdict.get("why"))
+
+    plan = marks.plan(operation, verdict)
+    assert plan.get("note"), "it still wrote no note: %s" % plan
+    assert config.NOTE_CUSTOM in plan["note"]["to"], plan["note"]["to"]
+    # Grey is also what an unmarked operation already shows, so a change
+    # is only planned when it was some other colour; what matters is
+    # where it ends up.
+    assert (plan.get("icon", {}).get("to") or marks._icon(operation)) == (
+        config.ICON_FOR_STATE[state.CUSTOM])
+
+    # And a record, which is what stops the next pass having to work it out
+    # from nothing -- the hole that made the silence permanent.
+    marks.apply(operation, plan)
+    again = state.reconcile(operation, tools, {})
+    assert again["record"], "no record was written, so it would go quiet again"
+    assert again["state"] == state.CUSTOM, again
+
+
+def test_the_note_comes_back_after_removing_every_mark():
+    """Remove all notes used to be irreversible for exactly these.
+
+    A grey Custom verdict was taken to exist only because of the hidden
+    record, so removing the record lost the fact that somebody had put the
+    operation on a shop preset -- "the only way back is to pick their preset
+    again", as the confirmation dialog said. The operation is still sitting on
+    the preset afterwards, which says the same thing and says it better.
+    """
+    operation, tools = _on_a_shop_preset_and_changed()
+    marks.apply(operation, marks.plan(operation, state.reconcile(
+        operation, tools, {})))
+    assert config.NOTE_PREFIX in operation.notes
+
+    # Everything the add-in wrote comes off, record included. Attrs here
+    # cannot delete, so the removal strip() asks for is checked and then done
+    # to the fake by hand; what is being pinned is the verdict afterwards.
+    coming_off = marks.strip(operation)
+    assert config.KEY_RECORD in (coming_off.get("record") or {}).get(
+        "remove", []), coming_off
+    operation.notes = coming_off["note"]["to"]
+    operation.attributes.held.pop(config.KEY_RECORD, None)
+    assert config.NOTE_PREFIX not in operation.notes, operation.notes
+
+    verdict = state.reconcile(operation, tools, {})
+    assert verdict["state"] == state.CUSTOM, (
+        "after removing the marks it read %r, so the note could not come back"
+        % verdict["state"])
+    assert marks.plan(operation, verdict).get("note"), (
+        "the note did not come back")

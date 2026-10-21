@@ -598,12 +598,13 @@ UNMARKED = ("Removed the UTP notes from %d of %d operations.\n\nPresets were "
             "never tracked. To keep them off, turn the add-in off under "
             "Switches.")
 READ_ONLY = "This file is read-only, so nothing was changed."
+# It used to warn that the grey Custom ones never came back, because what made
+# an operation Custom was a hidden record that went with the notes. It is the
+# operation sitting on the preset that says somebody put it there, and that is
+# still true afterwards, so a later check works those out too.
 UNMARK_CONFIRM = ("Remove every UTP note and colour from this "
                   "document?\n\nPresets are left alone and nothing is saved. "
-                  "Update presets works most of them out again.\n\nNot the grey "
-                  "Custom ones: what makes an operation Custom is a hidden "
-                  "record of the preset it was put on, and that goes too. The "
-                  "only way back for those is to pick their preset again.")
+                  "Update presets works them out again.")
 
 # ---------------------------------------------------------------------------
 # The buttons

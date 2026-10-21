@@ -71,7 +71,7 @@ def note_line(verdict):
         return ours(said)
     if kind == state.CUSTOM:
         return ours(config.NOTE_CUSTOM)
-    # not adopted, not a UTP tool, retired: the add-in says nothing at all.
+    # not a UTP tool, retired, unknown: the add-in says nothing at all.
     return None
 
 

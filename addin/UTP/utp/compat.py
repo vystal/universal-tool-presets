@@ -61,8 +61,10 @@ def schema_of(owner):
 
     Damaged reads as None: nothing can be learnt from it about what wrote
     it. The operation carrying it is still handled on its own merits, where
-    an unreadable record means "not adopted" rather than "do not touch this
-    job".
+    an unreadable record means no record rather than "do not touch this job".
+    Which preset the operation is sitting on is read from the operation
+    itself, so losing the record costs the add-in nothing it cannot work out
+    again.
     """
     try:
         record = owner.attributes.itemByName(config.ATTRIBUTE_GROUP,

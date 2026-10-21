@@ -13,7 +13,6 @@ import json
 from . import config, identity, presets, values
 
 NOT_UTP = "not a UTP tool"
-NOT_ADOPTED = "not adopted"
 CUSTOM = "custom"
 BEHIND = "behind"
 CURRENT = "current"
@@ -328,16 +327,44 @@ def reconcile(operation, library_tools, seen=None, tool_id=None):
                               % (verdict["preset"], len(edited),
                                  _sample(verdict["changed"])))
         else:
-            # Never put on a UTP at all. Nearly every operation in a file that
-            # predates the system lands here: measured on a real document, 20
-            # of 27. A grey note on every one of them would be noise rather
-            # than information, so this state says nothing and marks nothing.
-            # An operation joins the system when somebody picks a UTP preset
-            # for it, and only then can it be behind or custom.
-            verdict["state"] = NOT_ADOPTED
-            verdict["why"] = ("never set from a UTP; %d values differ from its "
-                              "preset, e.g. %s"
-                              % (len(edited), _sample(verdict["changed"])))
+            # On a shop preset, its values changed, and this add-in has never
+            # marked it -- so there is no record saying so. Grey Custom, the
+            # same as the two branches above, because it is the same thing:
+            # somebody is sitting on a shop preset and running something else.
+            #
+            # This said "never set from a UTP" and marked nothing. The reason
+            # given was that nearly every operation in a file predating the
+            # system lands here, measured 20 of 27, and a grey note on all of
+            # them would be noise. That was true when it was written and
+            # stopped being true on 6 October, when an operation on the preset
+            # Fusion makes by itself started being answered further up as
+            # NOT_UTP. Every one of those 20 was on "Default preset".
+            #
+            # After that change this branch could only be reached by an
+            # operation genuinely on a shop preset -- the name is a UTP's, and
+            # the preset resolved in the library, or `edited` would have been
+            # cleared above. The logs show the switch to the day: every "not
+            # adopted" verdict up to 5 October was on Default preset, 3651 of
+            # them, and every one from 7 October on was on a shop preset.
+            #
+            # What it cost was the worst thing in here. No note, no colour,
+            # and -- because marks.record only writes for current, behind and
+            # custom -- no record either. So the next pass found no record,
+            # came back to this branch, and said "never set from a UTP" about
+            # an operation that was on one: silent, and silent for ever, with
+            # nothing anywhere saying why. Somebody picks a shop preset, their
+            # feeds do not match it, and the add-in says nothing at all.
+            #
+            # It also made Remove all notes irreversible for exactly these
+            # operations. The record was treated as the only evidence that
+            # somebody had put an operation on a shop preset, so removing it
+            # lost that fact for good. It was never the only evidence: the
+            # operation is still sitting on the preset, and that is a better
+            # witness than anything this add-in writes about itself.
+            verdict["state"] = CUSTOM
+            verdict["why"] = ("is on %s and %d of its values differ from it, "
+                              "e.g. %s" % (verdict["preset"], len(edited),
+                                           _sample(verdict["changed"])))
         return verdict
 
     if library_preset is None:
