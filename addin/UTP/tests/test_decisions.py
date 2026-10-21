@@ -448,6 +448,17 @@ class FakeTool:
         return Coll()
 
 
+def _arrived_as(name, library_preset_id):
+    """A preset that came into the document with the tool.
+
+    It carries the library preset's own id and no source attribute, which is
+    the only thing that says which library the tool was copied out of.
+    """
+    preset = FakePreset(name)
+    preset.id = library_preset_id
+    return preset
+
+
 class FakeLibraryPreset:
     def __init__(self, name, values_now):
         self.name = name
@@ -2124,3 +2135,91 @@ def test_a_preset_it_cannot_find_is_never_called_custom():
     assert verdict["state"] != state.CUSTOM, (
         "it enrolled the operation onto a preset in no library: %s" % verdict)
     assert verdict["state"] == state.RETIRED, verdict
+
+
+def test_one_machines_presets_are_not_offered_on_another_machines_tool():
+    """The 21 October report. Creating a preset on the Kitamura's #15 brought
+    the Okuma's #15 presets into the document with it.
+
+    One tool id is in several Hub libraries -- 58 of 384 here -- and
+    library.absorb unions their presets onto one tool so that an operation on
+    any of them is still recognised. The offering path read that union, so a
+    job on the Kitamura was handed the Okuma's Zirc and SS: the right cutter,
+    another machine's feeds and speeds.
+
+    Measured at the time: 13 shared tools had presets in exactly one library
+    and none had them in two, so every one of the 13 was leaking Okuma's
+    presets onto the Matsuura and the Kitamura.
+    """
+    class LibPreset:
+        def __init__(self, name, ident, lib):
+            self.name, self.id, self.library = name, ident, lib
+            self.values = {"tool_feedCutting": 1000.0}
+
+    zirc = LibPreset("Zirc", "zirc-id", "Okuma MB56 VII.hub")
+    ess = LibPreset("SS", "ss-id", "Okuma MB56 VII.hub")
+
+    def shared_tool():
+        return type("T", (), {
+            "description": "#15 bullnose",
+            "library": "Kitamura HX250G.hub",
+            "also_in": ["Okuma MB56 VII.hub"],
+            "presets": {zirc.id: zirc, ess.id: ess}})()
+
+    # The Kitamura's copy has no shop presets of its own, so the document tool
+    # arrived with nothing that resolves into any library.
+    kitamura_job = FakeTool([FakePreset("Default preset")])
+    withheld = []
+    assert presets.missing(kitamura_job, shared_tool(), withheld) == [], (
+        "the Okuma's presets were offered on the Kitamura's tool")
+    assert sorted(p.name for p in withheld) == ["SS", "Zirc"], (
+        "the pass would say nothing about why it brought nothing in: %s"
+        % [p.name for p in withheld])
+
+    # The same tool in an Okuma job. It arrived carrying Zirc, which keeps the
+    # library preset's own id, so the library IS known and SS is offered.
+    okuma_job = FakeTool([FakePreset("Default preset"),
+                          _arrived_as("Zirc", "zirc-id")])
+    assert presets.library_of(okuma_job, shared_tool()) == "Okuma MB56 VII.hub"
+    assert [p.name for p in presets.missing(okuma_job, shared_tool())] == ["SS"]
+
+    # A tool in one library only is untouched by any of this.
+    alone = type("T", (), {"description": "#20 drill", "library": "A.hub",
+                           "also_in": [],
+                           "presets": {zirc.id: zirc}})()
+    assert [p.name for p in presets.missing(FakeTool([]), alone)] == ["Zirc"]
+
+
+def test_a_copy_we_made_does_not_decide_which_library_a_tool_came_from():
+    """Otherwise the fault keeps itself alive on the documents that have it.
+
+    A copy this add-in made carries its source library preset's id, so it
+    answers "which library" exactly as confidently as a preset that arrived
+    with the tool -- and on the Kitamura job that was already given the
+    Okuma's presets, the copies sitting in it are Okuma's. Reading those would
+    conclude "this is an Okuma tool" and go on offering Okuma's presets for
+    ever, on the one document that most needs it to stop.
+    """
+    class LibPreset:
+        def __init__(self, name, ident, lib):
+            self.name, self.id, self.library = name, ident, lib
+            self.values = {"tool_feedCutting": 1000.0}
+
+    zirc = LibPreset("Zirc", "zirc-id", "Okuma MB56 VII.hub")
+    fresh = LibPreset("Hard", "hard-id", "Okuma MB56 VII.hub")
+    shared = type("T", (), {
+        "description": "#15 bullnose", "library": "Kitamura HX250G.hub",
+        "also_in": ["Okuma MB56 VII.hub"],
+        "presets": {zirc.id: zirc, fresh.id: fresh}})()
+
+    # The document holds only what the bug put there: a copy of the Okuma's
+    # Zirc, stamped with its source.
+    damaged = FakeTool([FakePreset("Zirc",
+                                   {config.KEY_SOURCE_PRESET: "zirc-id"})])
+    assert presets.library_of(damaged, shared) is None, (
+        "a copy the add-in made was taken as proof of which library the tool "
+        "came from, which is how the fault would outlive the fix")
+    assert presets.missing(damaged, shared) == [], (
+        "it went on offering the Okuma's presets on the strength of the "
+        "Okuma presets it had already wrongly added"
+    )

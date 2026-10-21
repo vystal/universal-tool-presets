@@ -149,14 +149,77 @@ def represented(tool, library_preset_id, by_name=None):
     return False
 
 
-def missing(tool, library_tool):
+def library_of(tool, library_tool):
+    """Which Hub library this document's copy of the tool came out of.
+
+    Only ever asked of a tool that is in more than one of them, which 58 of
+    this shop's 384 are, because a tool id is not unique across libraries.
+    For some of those 58 the copies are not even the same cutter: one
+    library's #38 is a JJ Tools 4HCEG and another's is a Widin ESRE, under one
+    guid. The libraries are one per machine, so their presets are one
+    machine's feeds.
+
+    Nothing on the tool says where it came from. A document tool's JSON holds
+    guid, vendor, product-id, geometry and holder, and names no library
+    anywhere in it; adsk.cam.Tool has no member for one either. Both measured
+    21 October. What does say is the presets it ARRIVED with, because a preset
+    keeps the library preset's own id when the tool is copied in, so one of
+    those resolving into exactly one library is the answer.
+
+    Only the arrived ones count. A copy this add-in made carries its source
+    library preset's id as well, so it would answer just as confidently -- and
+    on a document the fault below has already reached, the copies sitting
+    there are the other machine's. They would say "Okuma" for ever on a
+    Kitamura job and keep the fault alive on the one document that has it.
+
+    None when it cannot be told, which means offer nothing.
+    """
+    arrived = set()
+    try:
+        for index in range(tool.presets.count):
+            preset = tool.presets.item(index)
+            if source_of(preset) is not None:
+                continue
+            held = library_tool.presets.get(preset.id)
+            if held is not None and held.library:
+                arrived.add(held.library)
+    except Exception:
+        return None
+    return next(iter(arrived)) if len(arrived) == 1 else None
+
+
+def missing(tool, library_tool, withheld=None):
     """Library presets this document has never seen.
 
     A UTP added at the shop after a job was made is otherwise invisible in
     that job: nothing is behind, because no operation is on it, so nothing
     brings it in and somebody would have to re-select the tool to reach it.
+
+    Never from another machine's library. A tool in several of them has all
+    their presets unioned onto it by library.absorb, so that an operation on
+    any of them is still recognised, and offering that union is what put one
+    machine's feeds in the dropdown of a job on another. Reported 21 October:
+    a preset created on the Kitamura #15 came with the Okuma #15's Zirc and
+    SS, which are the Okuma's feeds at the Okuma's speeds. Judging is
+    unaffected -- an operation is matched to the preset it is actually on, by
+    id, so it is matched within its own library already.
+
+    Presets refused for that reason go in `withheld`, so a pass can say why it
+    brought nothing in rather than looking as though there was nothing to
+    bring.
     """
-    return [preset for preset in library_tool.presets.values()
+    offer = list(library_tool.presets.values())
+    if getattr(library_tool, "also_in", None):
+        belongs = library_of(tool, library_tool)
+        offer = [preset for preset in offer if preset.library == belongs]
+        if withheld is not None:
+            kept = {preset.id for preset in offer}
+            withheld.extend(
+                preset for preset in library_tool.presets.values()
+                if preset.id not in kept
+                and not represented(tool, preset.id,
+                                    by_name=(preset.name or "").strip()))
+    return [preset for preset in offer
             if not represented(tool, preset.id,
                                by_name=(preset.name or "").strip())]
 

@@ -42,7 +42,24 @@ def _bring_in_unseen(cam, in_use, report, writing):
         if tool is None:
             continue
 
-        absent = presets.missing(tool, library_tool)
+        held_back = []
+        absent = presets.missing(tool, library_tool, held_back)
+        if held_back:
+            # Said out loud. Without this the commonest outcome on a shared
+            # tool -- nothing offered, because which machine's library this
+            # copy came from cannot be told -- is indistinguishable from the
+            # shop having added nothing.
+            report.note("did not offer presets from another machine's library",
+                        tool=library_tool.description,
+                        presets=[p.name for p in held_back],
+                        in_libraries=([library_tool.library]
+                                      + list(library_tool.also_in)),
+                        this_copy_came_from=(
+                            presets.library_of(tool, library_tool)
+                            or "could not be told from the presets it "
+                               "arrived with"),
+                        reason=("one library per machine, so their presets "
+                                "are that machine's feeds"))
         if absent:
             allowed = writing and settings.on("presets")
             names = [presets.plain_name(p.name) for p in absent]
@@ -56,8 +73,15 @@ def _bring_in_unseen(cam, in_use, report, writing):
                     try:
                         done = presets.apply(cam, tool, library_preset,
                                              {"add": library_preset.name})
+                        # Which tool and which library, not just the name.
+                        # Asked on 21 October whether a preset seen on a
+                        # Kitamura tool had come from the Okuma library, and
+                        # the logs could not answer it: this note recorded
+                        # "added SS" and nothing else, so neither the tool nor
+                        # the library it came out of survived anywhere.
                         report.note("brought in a preset from the library",
-                                    did=done)
+                                    did=done, tool=library_tool.description,
+                                    from_library=library_preset.library)
                         report.wrote += len(done)
                         wrote = True
                     except Exception:
